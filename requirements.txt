@@ -1,0 +1,16 @@
+# 葵之使魔 ~AoiDaemon~ 依赖列表
+# v0.1 MVP
+
+# Qt 图形界面
+PySide6>=6.11.0
+
+# Live2D Python 绑定（v2 支持 Cubism 2.x 模型）
+live2d-py>=0.7.0
+
+# HTTP 请求（v0.2 接入真实 API 时使用）
+requests>=2.31.0
+
+# Live2D 运行时依赖
+PyOpenGL>=3.1.0
+Pillow>=10.0.0
+numpy>=1.24.0
