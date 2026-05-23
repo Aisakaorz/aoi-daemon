@@ -2,16 +2,11 @@
 
 > 桌面级 Live2D AI 伴侣应用 —— 你的桌面使魔/看板娘
 >
-> **葵酱（Aoi）** 是基于 Live2D 免费模型 **haru** 的桌面看板娘。
+> **葵酱（Aoi）** 是基于 Live2D 免费模型 **haru** 的桌面看板娘
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![PySide6](https://img.shields.io/badge/PySide6-6.5%2B-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-lightgrey)
-
-<p align="center">
-  <!-- 在此处放置演示 GIF -->
-  <img src="docs/demo.gif" alt="AoiDaemon Demo" width="320">
-</p>
 
 ## ✨ 功能特性
 
@@ -135,7 +130,7 @@ python main.py
 | **左键拖拽** | 按住角色任意区域拖动窗口位置 |
 | **点击头部** | 摸头反应（flickHead 动作 + 音效） |
 | **点击身体** | 身体互动（随机 tapBody 动作 + 音效） |
-| **右键** | 弹出菜单（显示/隐藏聊天、置顶开关、关于、退出） |
+| **右键（角色或托盘）** | 显示/隐藏葵酱、聊天开关、窗口置顶、角色大小（小/中/大）、关于、退出 |
 | **左键托盘图标** | 显示/隐藏主窗口 |
 | **Enter** | 在聊天面板输入框中发送消息 |
 
@@ -185,6 +180,7 @@ aoi-daemon/
 | 版本 | 内容 | 状态 |
 |------|------|------|
 | v0.1 | 透明窗口 + Live2D 渲染 + 聊天气泡 + 托盘 | ✅ |
+| v0.1.1 | 菜单统一 + 动态文字 + 角色大小选择 | ✅ |
 | v0.2 | 接入真实 Kimi Claw API | 🔜 |
 | v0.3 | TTS 语音输出 + 口型同步 | 📋 |
 | v0.4 | STT 语音输入 | 📋 |

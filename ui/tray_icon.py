@@ -18,15 +18,10 @@ class TrayIcon(QObject):
     信号：
         - show_window: 请求显示主窗口
         - hide_window: 请求隐藏主窗口
-        - toggle_chat: 请求切换聊天面板显示状态
-        - quit_app: 请求退出应用
     """
 
     show_window = Signal()
     hide_window = Signal()
-    toggle_chat = Signal()
-    about_app = Signal()
-    quit_app = Signal()
 
     def __init__(self, parent: QWidget):
         super().__init__(parent)
@@ -36,7 +31,6 @@ class TrayIcon(QObject):
 
         # 尝试加载图标，如果没有则使用系统默认
         self._setup_icon()
-        self._setup_menu()
 
         # 左键单击切换显示/隐藏
         self._tray.activated.connect(self._on_activated)
@@ -59,36 +53,8 @@ class TrayIcon(QObject):
         ))
         logger.warning("未找到自定义托盘图标，使用系统默认图标")
 
-    def _setup_menu(self) -> None:
-        """构建右键菜单"""
-        menu = QMenu(self._parent)
-
-        action_show = QAction("显示窗口", self._parent)
-        action_show.triggered.connect(self.show_window.emit)
-        menu.addAction(action_show)
-
-        action_hide = QAction("隐藏窗口", self._parent)
-        action_hide.triggered.connect(self.hide_window.emit)
-        menu.addAction(action_hide)
-
-        menu.addSeparator()
-
-        action_chat = QAction("显示/隐藏聊天面板", self._parent)
-        action_chat.triggered.connect(self.toggle_chat.emit)
-        menu.addAction(action_chat)
-
-        menu.addSeparator()
-
-        action_about = QAction("关于", self._parent)
-        action_about.triggered.connect(self.about_app.emit)
-        menu.addAction(action_about)
-
-        menu.addSeparator()
-
-        action_quit = QAction("退出", self._parent)
-        action_quit.triggered.connect(self.quit_app.emit)
-        menu.addAction(action_quit)
-
+    def set_menu(self, menu: QMenu) -> None:
+        """设置托盘右键菜单（由 MainWindow 统一构建）"""
         self._tray.setContextMenu(menu)
 
     def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:

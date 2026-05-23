@@ -25,7 +25,7 @@
 6. 实现 core/state_machine.py（Idle/Greeting/Thinking/TapHead/TapBody，优先级管理）
 7. 实现 ui/chat_panel.py（气泡组件、输入框、打字指示器）
 8. 实现 ai/kimi_claw_provider.py（API 占位符，直接 echo 用户输入）
-9. 实现系统托盘 + 右键菜单
+9. 实现系统托盘 + 右键菜单（任务栏与角色右键共用同一份菜单：显示/隐藏葵酱、聊天开关、置顶、角色大小、关于、退出）
 10. 所有代码中文注释，异常处理完善（特别是 live2d 初始化和模型加载失败）
 11. 生成 requirements.txt（PySide6, live2d-py, requests）
 12. 不要生成 v0.2 及以后的代码

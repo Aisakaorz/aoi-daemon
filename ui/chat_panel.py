@@ -66,6 +66,14 @@ class BubbleWidget(QWidget):
         self._position_opacity = max(0.0, min(1.0, float(opacity)))
         self.update()
 
+    def update_max_width(self, max_width: int) -> None:
+        """更新最大宽度并重新计算尺寸（用于角色大小缩放时同步调整气泡）"""
+        if max_width == self._max_w:
+            return
+        self._max_w = max_width
+        self._compute_size()
+        self.update()
+
     # ---- 尺寸计算 ----
 
     def _wrap_text(self, text: str, max_width: int) -> list[str]:
@@ -146,6 +154,8 @@ class ChatPanel(QWidget):
         self._setup_ui()
         self._message_widgets: list[QWidget] = []
         self.setVisible(False)
+        # 面板最大高度占父窗口高度的比例（随角色大小同步缩放）
+        self._max_height_ratio = 0.65
 
     def _setup_ui(self) -> None:
         """初始化界面布局"""
@@ -210,6 +220,29 @@ class ChatPanel(QWidget):
             + self._msg_layout.contentsMargins().bottom()
         )
         self.setFixedHeight(initial_h)
+
+    def set_panel_width(self, width: int) -> None:
+        """调整面板宽度（用于角色大小缩放时同步调整）"""
+        self._base_width = width
+        self._bubble_max_width = int(width * 0.9)
+
+        # 同步更新所有已有气泡的换行和尺寸
+        for row in self._message_widgets:
+            bubble = None
+            for child in row.findChildren(BubbleWidget):
+                bubble = child
+                break
+            if bubble is not None:
+                bubble.update_max_width(self._bubble_max_width)
+                new_h = bubble.height()
+                row.setFixedHeight(new_h)
+                row.setProperty("_layout_height", new_h)
+
+        # 重新计算面板总高度，然后一次性设置宽高（只触发一次 resizeEvent）
+        new_height = self._adjust_height()
+        self.setFixedSize(width, new_height)
+        # 重新计算透明度（消息数量/高度变化后可能溢出）
+        self._update_opacity_by_position(new_height)
 
     def _on_send(self) -> None:
         """用户按下回车发送消息"""
@@ -434,10 +467,17 @@ class ChatPanel(QWidget):
             + self._msg_layout.contentsMargins().top()
             + self._msg_layout.contentsMargins().bottom()
         )
-        new_height = min(height, _MAX_PANEL_HEIGHT)
+        new_height = min(height, self._get_max_panel_height())
         self.setFixedHeight(new_height)
         self.geometry_changed.emit()
         return new_height
+
+    def _get_max_panel_height(self) -> int:
+        """根据父窗口高度动态计算面板最大高度"""
+        parent = self.parentWidget()
+        if parent:
+            return int(parent.height() * self._max_height_ratio)
+        return _MAX_PANEL_HEIGHT
 
     def show_typing_indicator(self) -> None:
         """显示 AI 正在输入的指示器（三个跳动小点）"""
@@ -463,6 +503,7 @@ class ChatPanel(QWidget):
 
         new_height = self._adjust_height()
         self._relayout_messages(new_height)
+        self._update_opacity_by_position(new_height)
         self.geometry_changed.emit()
         self._start_typing_animation()
 
@@ -495,11 +536,17 @@ class ChatPanel(QWidget):
             self._typing_dots = []
             new_height = self._adjust_height()
             self._relayout_messages(new_height)
+            self._update_opacity_by_position(new_height)
             self.geometry_changed.emit()
 
     def toggle_visibility(self) -> None:
         """切换显示/隐藏"""
         self.setVisible(not self.isVisible())
+
+    def resizeEvent(self, event) -> None:
+        """尺寸变化时重新排布消息（保持对齐和间距正确）"""
+        super().resizeEvent(event)
+        self._relayout_messages()
 
     def showEvent(self, event) -> None:
         """显示时自定位到父窗口底部居中，并聚焦输入框"""
@@ -510,4 +557,5 @@ class ChatPanel(QWidget):
             cy = parent.height() - self.height() - 10
             self.move(cx, max(cy, 0))
             self.raise_()
-        self._input.setFocus()
+        if hasattr(self, "_input") and self._input is not None:
+            self._input.setFocus()

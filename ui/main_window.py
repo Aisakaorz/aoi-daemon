@@ -62,11 +62,14 @@ class MainWindow(QMainWindow):
         self._setup_window()
         self._setup_central_widget()
         self._setup_tray()
-        self._setup_context_menu()
+        self._build_shared_menu()
         self._setup_passthrough_timer()
 
         # 窗口初始位置：屏幕右下角
         self._move_to_default_position()
+
+        # 当前角色缩放比例（1.0 = 默认 400×600）
+        self._current_scale = 1.0
 
         logger.info("MainWindow 初始化完成")
 
@@ -114,40 +117,70 @@ class MainWindow(QMainWindow):
         self._tray = TrayIcon(self)
         self._tray.show_window.connect(self.show)
         self._tray.hide_window.connect(self.hide)
-        self._tray.toggle_chat.connect(self._toggle_chat_panel)
-        self._tray.about_app.connect(self._show_about)
-        self._tray.quit_app.connect(self._on_quit)
         self._tray.show()
 
-    def _setup_context_menu(self) -> None:
+    def _build_shared_menu(self) -> None:
         """
-        右键菜单（通过 Qt 实现）
-        在 MainWindow 上右键时弹出
+        构建统一菜单（任务栏右键 + 角色右键共用）
+        菜单项：显示/隐藏、聊天开关、置顶、角色大小、关于、退出
         """
         from PySide6.QtWidgets import QMenu
-        from PySide6.QtGui import QAction
+        from PySide6.QtGui import QAction, QActionGroup
 
-        self._context_menu = QMenu(self)
+        self._menu = QMenu(self)
 
-        action_chat = QAction("显示/隐藏聊天面板", self)
-        action_chat.triggered.connect(self._toggle_chat_panel)
-        self._context_menu.addAction(action_chat)
+        # ---- 显示/隐藏葵酱 ----
+        self._action_visible = QAction("隐藏葵酱", self)
+        self._action_visible.triggered.connect(self._toggle_visibility)
+        self._menu.addAction(self._action_visible)
 
+        # ---- 聊天开关 ----
+        self._action_chat = QAction("想和葵酱聊天", self)
+        self._action_chat.triggered.connect(self._toggle_chat_panel)
+        self._menu.addAction(self._action_chat)
+
+        # ---- 窗口置顶 ----
         self._action_top = QAction("窗口置顶", self)
         self._action_top.setCheckable(True)
         self._action_top.setChecked(True)  # 默认置顶
         self._action_top.triggered.connect(self._toggle_topmost)
-        self._context_menu.addAction(self._action_top)
+        self._menu.addAction(self._action_top)
 
-        self._context_menu.addSeparator()
+        self._menu.addSeparator()
 
+        # ---- 角色大小子菜单 ----
+        size_menu = QMenu("角色大小", self)
+        self._size_group = QActionGroup(self)
+        self._size_group.setExclusive(True)
+
+        for label, scale in [("小", 0.75), ("中", 1.0), ("大", 1.25)]:
+            action = QAction(label, self, checkable=True)
+            action.setData(scale)
+            if scale == 1.0:
+                action.setChecked(True)
+            action.triggered.connect(lambda checked, s=scale: self._apply_scale(s))
+            self._size_group.addAction(action)
+            size_menu.addAction(action)
+
+        self._menu.addMenu(size_menu)
+
+        self._menu.addSeparator()
+
+        # ---- 关于 ----
         action_about = QAction("关于", self)
         action_about.triggered.connect(self._show_about)
-        self._context_menu.addAction(action_about)
+        self._menu.addAction(action_about)
 
+        # ---- 退出 ----
         action_quit = QAction("退出", self)
         action_quit.triggered.connect(self._on_quit)
-        self._context_menu.addAction(action_quit)
+        self._menu.addAction(action_quit)
+
+        # 菜单显示前更新动态文字
+        self._menu.aboutToShow.connect(self._update_menu_text)
+
+        # 同时设置给托盘
+        self._tray.set_menu(self._menu)
 
     def _setup_passthrough_timer(self) -> None:
         """
@@ -257,14 +290,33 @@ class MainWindow(QMainWindow):
         注意：实际拖拽逻辑主要在 Live2DCanvas 中处理，这里作为后备
         """
         if event.button() == Qt.MouseButton.RightButton:
-            self._context_menu.popup(event.globalPosition().toPoint())
+            self._menu.popup(event.globalPosition().toPoint())
         super().mousePressEvent(event)
 
     def contextMenuEvent(self, event) -> None:
         """右键菜单事件"""
-        self._context_menu.popup(event.globalPos())
+        self._menu.popup(event.globalPos())
 
     # ---- 槽函数 ----
+
+    def _toggle_visibility(self) -> None:
+        """切换主窗口显示/隐藏"""
+        if self.isVisible():
+            self.hide()
+        else:
+            self.show()
+
+    def _update_menu_text(self) -> None:
+        """菜单显示前更新动态文字（显示/隐藏、聊天开关）"""
+        if self.isVisible():
+            self._action_visible.setText("隐藏葵酱")
+        else:
+            self._action_visible.setText("显示葵酱")
+
+        if self._chat.isVisible():
+            self._action_chat.setText("不和葵酱聊天")
+        else:
+            self._action_chat.setText("想和葵酱聊天")
 
     def _toggle_chat_panel(self) -> None:
         """
@@ -309,6 +361,36 @@ class MainWindow(QMainWindow):
             self._action_top.setChecked(True)
             logger.info("置顶已开启")
         self.show()
+
+    def _apply_scale(self, scale: float) -> None:
+        """应用角色大小缩放"""
+        if scale == self._current_scale:
+            return
+        self._current_scale = scale
+
+        new_width = int(_DEFAULT_WIDTH * scale)
+        new_height = int(_DEFAULT_HEIGHT * scale)
+
+        # 记录窗口中心点，缩放后以中心为锚点保持位置
+        old_geo = self.geometry()
+        center_x = old_geo.center().x()
+        center_y = old_geo.center().y()
+
+        # 调整窗口大小
+        self.resize(new_width, new_height)
+
+        # 以中心为锚点重新定位，避免窗口漂移
+        new_x = center_x - new_width // 2
+        new_y = center_y - new_height // 2
+        self.move(new_x, new_y)
+
+        # 同步调整聊天面板宽度
+        if hasattr(self, '_chat'):
+            new_chat_width = int(280 * scale)
+            self._chat.set_panel_width(new_chat_width)
+            self._move_chat_to_bottom()
+
+        logger.info(f"角色大小调整为 {scale}x ({new_width}x{new_height})")
 
     def _show_about(self) -> None:
         """显示关于信息（自定义弹窗，无提示图标，应用图标，内容绝对居中）"""
