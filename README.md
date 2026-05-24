@@ -5,18 +5,19 @@
 > **葵酱（Aoi）** 是基于 Live2D 免费模型 **haru** 的桌面看板娘
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![PySide6](https://img.shields.io/badge/PySide6-6.5%2B-green)
+![PySide6](https://img.shields.io/badge/PySide6-6.11%2B-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-lightgrey)
 
 ## ✨ 功能特性
 
 - 🎭 **Live2D 实时渲染** —— 60 FPS 流畅渲染，视线跟随鼠标，自然呼吸动画
 - 💬 **AI 对话聊天** —— 接入 Kimi Claw API，支持文本交互（v0.1 为占位模式，v0.2 接入真实 API）
-- 🔊 **语音交互** —— TTS 语音输出 + STT 语音输入（v0.3 / v0.4）
+- 🎙️ **语音输入** —— 长按 🎙 按钮说话，faster-whisper 本地转文字填入输入框（v0.1.2）
 - 👆 **点击互动** —— 点击头部/身体触发不同动作反应，附带音效反馈
 - 🎨 **透明无边框窗口** —— 悬浮桌面最上层，不打扰正常工作
 - 🖱️ **鼠标穿透** —— 点击角色外区域不遮挡底层窗口操作
 - 💻 **系统托盘** —— 最小化到托盘，右键快捷菜单
+- 📐 **角色大小切换** —— 小/中/大三档缩放，气泡同步自适应
 
 ## 📦 安装
 
@@ -117,6 +118,28 @@ resources/model/live2d-widget-model-haru/
 
 > ⚠️ 请确保模型文件路径与 `l2d/model_wrapper.py` 中的 `model_path` 一致。
 
+### 6. 配置语音转文字模型（可选）
+
+语音转文字功能基于 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) tiny 模型（约 39MB）。
+
+**方式一：应用内自动下载（推荐）**
+
+首次使用语音转文字按钮时，应用会弹窗提示下载，下载过程中显示进度条。
+
+**方式二：手动提前下载**
+
+如果你希望避免首次使用时的下载等待，可提前将模型文件放置到 `resources/whisper/tiny/` 目录：
+
+```bash
+# 使用 huggingface-cli 下载
+pip install huggingface-hub
+huggingface-cli download guillaumekln/faster-whisper-tiny \
+  --local-dir resources/whisper/tiny \
+  --local-dir-use-symlinks False
+```
+
+或直接从 [HuggingFace](https://huggingface.co/guillaumekln/faster-whisper-tiny/tree/main) 手动下载所有文件放入 `resources/whisper/tiny/`。
+
 ## 🚀 使用
 
 ```bash
@@ -133,6 +156,7 @@ python main.py
 | **右键（角色或托盘）** | 显示/隐藏葵酱、聊天开关、窗口置顶、角色大小（小/中/大）、关于、退出 |
 | **左键托盘图标** | 显示/隐藏主窗口 |
 | **Enter** | 在聊天面板输入框中发送消息 |
+| **长按 🎙 按钮** | 语音输入：长按 300ms 开始录音，松开自动转文字填入输入框 |
 
 ## 📁 项目结构
 
@@ -146,7 +170,8 @@ aoi-daemon/
 ├── ui/
 │   ├── main_window.py          # 透明无边框置顶窗口
 │   ├── live2d_canvas.py        # Live2D 渲染画布
-│   ├── chat_panel.py           # 聊天气泡面板
+│   ├── chat_panel.py           # 聊天气泡面板 + 输入框 + 语音按钮
+│   ├── model_download_dialog.py # STT 模型下载对话框
 │   └── tray_icon.py            # 系统托盘
 ├── l2d/
 │   ├── __init__.py             # MeshContext 修复
@@ -154,6 +179,8 @@ aoi-daemon/
 ├── ai/
 │   ├── base_provider.py        # AI Provider 抽象基类
 │   └── kimi_claw_provider.py   # Kimi Claw API 封装
+├── voice/
+│   └── stt_provider.py         # STT 封装：录音 + faster-whisper 转录
 ├── utils/
 │   └── logger.py               # 统一日志
 ├── lib/
@@ -161,7 +188,10 @@ aoi-daemon/
 │   └── libCore.dylib           # macOS Live2D Core（需自行下载）
 └── resources/
     ├── icons/                  # 应用图标
-    └── model/                  # Live2D 模型文件（需自行放置，见上文）
+    ├── model/                  # Live2D 模型文件（需自行放置，见上文）
+    ├── sounds/                 # 音效文件
+    └── whisper/                # STT 模型（首次使用自动下载，或手动放置）
+        └── tiny/
 ```
 
 ## 🛠️ 技术栈
@@ -171,8 +201,8 @@ aoi-daemon/
 | GUI 框架 | PySide6 |
 | Live2D 渲染 | live2d-py (v2, Cubism 2.x) |
 | AI 对话 | Kimi Claw API（v0.2 接入） |
+| 语音识别 | faster-whisper tiny（v0.1.2） |
 | 语音合成 | edge-tts（v0.3） |
-| 语音识别 | faster-whisper（v0.4） |
 | 日志 | Python logging |
 
 ## 📋 版本路线图
@@ -181,10 +211,11 @@ aoi-daemon/
 |------|------|------|
 | v0.1 | 透明窗口 + Live2D 渲染 + 聊天气泡 + 托盘 | ✅ |
 | v0.1.1 | 菜单统一 + 动态文字 + 角色大小选择 | ✅ |
-| v0.2 | 接入真实 Kimi Claw API | 🔜 |
+| v0.1.2 | 语音输入(STT) + 输入框 galgame 美化 + 模型下载对话框 | ✅ |
+| v0.2 | 接入真实 Kimi Claw API | 📋 |
 | v0.3 | TTS 语音输出 + 口型同步 | 📋 |
-| v0.4 | STT 语音输入 | 📋 |
-| v0.5 | 设置窗口 + 配置持久化 + 情感分析 | 📋 |
+| v0.4 | 情感分析 + 状态机 Happy/Sad 状态 | 📋 |
+| v0.5 | 设置窗口 + 配置持久化 | 📋 |
 | v0.6 | SQLite 历史 + 开机自启 + 打包 | 📋 |
 
 ## 📄 模型与资源声明
@@ -213,4 +244,5 @@ aoi-daemon/
 - [hexo-helper-live2d](https://github.com/EYHN/hexo-helper-live2d) — haru 模型分发
 - [live2d-py](https://github.com/EasyLive2D/live2d-py) — Python Live2D 绑定
 - [PySide6](https://wiki.qt.io/Qt_for_Python) — Qt Python 绑定
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — 本地语音识别
 - [Kimi](https://kimi.moonshot.cn/) — AI 对话 API

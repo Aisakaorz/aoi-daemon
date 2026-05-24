@@ -8,7 +8,7 @@
 
 **核心定位**：桌面使魔/看板娘 + AI 对话伴侣 + 语音交互。
 
-**技术栈**：PySide6 + live2d-py(v2) + requests + edge-tts + faster-whisper + sounddevice + numpy
+**技术栈**：PySide6 + live2d-py(v2) + requests + faster-whisper + sounddevice + numpy
 
 ---
 
@@ -82,16 +82,33 @@
 
 **FR-CH-001 聊天气泡 UI**
 - 浮动面板，圆角矩形，半透明渐变背景
-- 用户消息：右对齐蓝色气泡；AI 消息：左对齐白色气泡
+- 用户消息：右对齐蓝色气泡；AI 消息：左对齐粉色气泡
 - 消息过多时旧消息随高度淡出消失，气泡大小保持不变，不被压缩
 - 手动字符级换行，文本垂直居中
+- 打字指示器（三个跳动圆点波浪动画）
 
-**FR-CH-002 文本输入**
+**FR-CH-002 文本输入与语音输入**
 - Enter 发送，Shift+Enter 换行
 - placeholder：跟葵酱说点什么吧~
 - 发送后清空输入框，触发 Thinking 状态
+- **语音按钮**：输入框左侧 🎙 按钮，长按 300ms 开始录音，松开结束
+  - 录音时清空输入框，placeholder 变为 "🎙 正在聆听... 松开按钮结束录音"
+  - 输入框禁用键盘输入（避免语音与键盘冲突）
+  - 录音结果直接填入输入框，用户自行回车发送
+  - 单击或长按不够时，显示提示气泡（葵酱的提醒）
+- **输入框 galgame 风格**：
+  - 暖白底 rgba(255,250,245) + 珊瑚粉边框 rgba(255,200,195)
+  - focus 时 2px 高亮边框 + 外发光
+  - 圆角 10px，字体 #4A3F3A
+- 语音按钮与输入框随面板宽度同步缩放
 
-**FR-CH-003 对话历史**
+**FR-CH-003 模型下载对话框**
+- 首次使用 STT 且本地无模型时弹出确认对话框
+- 确认后显示进度条，后台下载 faster-whisper tiny 模型（~39MB）
+- 支持取消下载（终止线程并清空已下载内容）
+- 下载失败友好提示（网络超时、连接失败等）
+
+**FR-CH-004 对话历史**
 - v0.1 内存级；v0.5 升级为 SQLite 持久化
 
 ### 2.4 AI 后端
@@ -114,18 +131,20 @@
 
 ### 2.5 语音系统
 
-**FR-VO-001 语音输出 (TTS)**
+**FR-VO-001 语音输入 (STT)**
+- faster-whisper tiny 模型本地推理（~39MB，存放于 resources/whisper/tiny/）
+- 长按语音按钮 300ms 开始录音，松开结束
+- sounddevice InputStream 非阻塞录制，16kHz, 16bit, 单声道
+- 录音保存为临时 WAV，转录完成后自动清理
+- 转录结果填入输入框
+- `grabMouse()` 捕获鼠标，移出窗口松开也能正常停止录音
+- 15 秒自动停止后备（防止 grabMouse 失效等极端情况）
+
+**FR-VO-002 语音输出 (TTS)**
 - edge-tts，中文女声（zh-CN-XiaoxiaoNeural / zh-CN-XiaoyiNeural）
 - 收到 AI 回复后自动生成 MP3 到 temp 目录并播放
 - 播放后自动清理临时文件
 - 设置中可开关（默认开启）
-
-**FR-VO-002 语音输入 (STT)**
-- faster-whisper base 模型（本地）
-- 长按空格键录音，松开结束，录音时显示波形动画
-- 参数：16kHz, 16bit, 单声道, 最大 30 秒
-- 转录结果自动填入输入框并发送
-- 设置中可开关（默认关闭）
 
 ### 2.6 配置系统
 
@@ -154,35 +173,29 @@ AoiDaemon/
 ├── PRD.md
 ├── TASK.md
 ├── PROMPTS.md
+├── .gitignore
 ├── core/
 │   ├── app.py              # 应用主控制器，协调各模块
-│   ├── settings.py         # 配置管理（Pydantic Settings）
+│   ├── __init__.py
 │   └── state_machine.py    # 角色动作状态机
 ├── ui/
-│   ├── main_window.py      # 透明无边框置顶窗口/拖拽
+│   ├── main_window.py      # 透明无边框置顶窗口/拖拽/缩放/菜单
 │   ├── live2d_canvas.py    # QOpenGLWidget + live2d-py 渲染
-│   ├── chat_panel.py       # 聊天气泡面板
-│   ├── input_bar.py        # 底部输入框（已合并到 chat_panel）
-│   ├── settings_window.py  # 设置窗口
-│   └── tray_icon.py        # 系统托盘
-├── l2d/                      # Live2D 业务封装（避免与第三方 live2d-py 包名冲突）
+│   ├── chat_panel.py       # 聊天气泡面板 + 输入框 + 语音按钮
+│   ├── model_download_dialog.py  # STT 模型下载确认+进度对话框
+│   ├── tray_icon.py        # 系统托盘
+│   └── __init__.py
+├── l2d/                    # Live2D 业务封装（避免与第三方 live2d-py 包名冲突）
 │   ├── __init__.py         # Monkey-patch MeshContext 导入 bug
 │   ├── model_wrapper.py    # LAppModel 封装
-│   ├── motion_manager.py   # 动作播放管理（优先级/队列/回调）
-│   ├── lip_sync.py         # 口型同步（音频 RMS -> MouthOpenY）
-│   └── mouse_tracker.py    # 鼠标位置 -> 视线/头部参数映射
+│   └── motion_manager.py   # 动作播放管理（优先级/队列/回调）
 ├── ai/
 │   ├── __init__.py
 │   ├── base_provider.py    # AI Provider 抽象基类
-│   ├── kimi_claw_provider.py
-│   └── sentiment.py        # 简易情感分析
+│   └── kimi_claw_provider.py
 ├── voice/
 │   ├── __init__.py
-│   ├── base_tts.py
-│   ├── edge_tts_provider.py
-│   ├── base_stt.py
-│   ├── whisper_provider.py
-│   └── audio_player.py     # 音频播放 + 实时音量回调
+│   └── stt_provider.py     # STT 封装：AudioRecorder + faster-whisper
 ├── utils/
 │   ├── __init__.py
 │   ├── logger.py
@@ -192,7 +205,10 @@ AoiDaemon/
 │   └── libCore.dylib       # macOS（需自行下载）
 └── resources/
     ├── icons/              # 应用图标
-    └── model/              # Live2D 模型（用户自备，见 README）
+    ├── model/              # Live2D 模型（用户自备，见 README）
+    ├── sounds/             # 音效文件
+    └── whisper/            # STT 模型（首次使用下载，或手动放置）
+        └── tiny/           # faster-whisper tiny 模型文件
 ```
 
 ---
@@ -208,34 +224,39 @@ AoiDaemon/
 - 角色大小选择（小 0.75x / 中 1.0x / 大 1.25x）
 - 角色大小切换时已有气泡同步重新换行与调整尺寸（避免截断）
 
+### v0.1.2 —— 语音输入与输入框美化
+- 输入框左侧语音转文字按钮（🎙 图标，长按 300ms 录音/松开转录）
+- faster-whisper tiny 本地语音转文字，录音保存为临时 WAV
+- 输入框 galgame 风格美化（暖白底+珊瑚粉边框+focus 高亮外发光）
+- 首次使用 STT 时检测本地模型，无模型则弹出下载对话框（带进度条）
+- `grabMouse()` 确保移出窗口松开也能正常停止录音
+
 ### v0.2 —— 接入真实 AI
 - 接入 Kimi Claw API 真实 HTTP 请求（替换占位模式）
 - 对话历史内存级管理（最近 20 条上下文）
 - API 超时/断网容错处理
 
-### v0.3 —— 语音输出（TTS）
+### v0.3 —— 语音输出（TTS）+ 口型同步
 - edge-tts 集成，中文女声合成
 - 音频播放 + 临时文件自动清理
 - TTS 开关（设置中可关闭）
 - 口型同步：音频 RMS 音量 → ParamMouthOpenY
 
-### v0.4 —— 语音输入（STT）
-- faster-whisper base 模型本地推理
-- 长按空格键录音，松开结束
-- 录音波形动画
-- STT 开关（默认关闭）
+### v0.4 —— 情感分析与状态机增强
+- 简易情感分析（关键词匹配 positive/neutral/negative）
+- 情感驱动状态机 Happy / Sad 状态
+- AI 回复后自动触发对应表情动作
 
-### v0.5 —— 设置与配置
+### v0.5 —— 设置窗口与配置持久化
 - 设置窗口（QTabWidget：通用 / AI / 语音 / 显示）
 - 配置持久化（~/.aoi-daemon/config.yaml）
-- API Key / Instance ID 可配置
-- 情感分析（关键词匹配 positive/neutral/negative）
+- API Key / Instance ID / Base URL 可配置
+- 语音页：TTS 开关、STT 开关、音色选择
 
-### v0.6 —— 完善与打包
+### v0.6 —— 聊天历史持久化与打包
 - 聊天历史 SQLite 持久化（~/.aoi-daemon/history.db，最近 50 条）
 - 开机自启（Windows 注册表 / Mac launchd）
 - PyInstaller（Windows）、Py2app（macOS）打包
-- README.md 完善
 
 ---
 
@@ -275,10 +296,6 @@ class BaseSTTProvider(ABC):
     def transcribe(self, audio_path: str) -> str:
         """Transcribe audio file to text"""
         pass
-    @abstractmethod
-    def transcribe_stream(self, audio_stream) -> str:
-        """Optional real-time streaming transcription"""
-        pass
 
 class Live2DModelWrapper:
     def load(self, model_path: str) -> bool: ...
@@ -304,8 +321,8 @@ class Live2DModelWrapper:
 8. **QGraphicsOpacityEffect 不兼容**：Qt6 中 `QGraphicsOpacityEffect` + `border-radius` 会导致动画期间变方。解决方案：用 `QPainter.setOpacity()` 在 QWidget 上自绘圆角矩形和文本。
 9. **QBoxLayout 压缩 spacing**：`QVBoxLayout` 空间不足时会优先压缩 `spacing` 导致气泡重叠。解决方案：禁用自动布局（`setEnabled(False)`），手动计算每条消息的 y 坐标。
 10. **widget 首次显示前 height() 返回 0**：手动布局时 `w.height()` 在 widget 首次显示前可能返回 0。解决方案：创建 widget 时存储 `_layout_height` 属性，所有布局计算使用该属性值。
-11. **edge-tts 异步**：communicate() 是异步生成器，同步代码中需用 asyncio.run() 或 asyncio.get_event_loop().run_until_complete() 包裹。建议封装为同步接口或单独开 QThread。
-12. **faster-whisper 模型下载**：首次运行自动从 HuggingFace 下载模型（~150MB），需网络通畅，缓存路径 ~/.cache/whisper/。
+11. **faster-whisper 模型下载**：首次运行自动从 HuggingFace 下载 tiny 模型（~39MB），应用内弹窗带进度条。也可手动放置到 `resources/whisper/tiny/`。
+12. **grabMouse 与模态对话框冲突**：`_VoiceButton` 长按录音时调用 `grabMouse()`，若此时弹出模态下载对话框，需在弹窗前调用 `releaseMouse()` 或 `reset_style()` 释放捕获，否则对话框可能无法交互。
 13. **API Key 安全**：不要硬编码，使用环境变量或本地加密配置文件。开源前检查 .gitignore 排除 config.yaml 和 .env。
 14. **Live2D 模型版权**：开源仓库不放完整模型。本项目演示使用的 haru 模型来源于 hexo-helper-live2d 项目，版权归属 Live2D Inc.。README 需注明模型文件需用户自行提供。
 15. **macOS 权限**：首次运行可能需授予麦克风权限（STT）和辅助功能权限（开机自启）。

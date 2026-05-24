@@ -5,9 +5,9 @@
 固定在角色下方（窗口底部居中）
 """
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QFrame
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QFrame, QDialog
 )
-from PySide6.QtCore import Qt, Signal, QTimer, QVariantAnimation, QEasingCurve
+from PySide6.QtCore import Qt, Signal, QTimer, QVariantAnimation, QEasingCurve, QEvent, QDateTime
 from PySide6.QtGui import (
     QFont, QPainter, QColor, QLinearGradient, QBrush, QPen
 )
@@ -156,6 +156,13 @@ class ChatPanel(QWidget):
         self.setVisible(False)
         # 面板最大高度占父窗口高度的比例（随角色大小同步缩放）
         self._max_height_ratio = 0.65
+        # 初始化语音转文字（失败时静默降级）
+        try:
+            from voice.stt_provider import STTProvider
+            self._stt = STTProvider()
+        except Exception as e:
+            logger.warning(f"STT 初始化失败: {e}")
+            self._stt = None
 
     def _setup_ui(self) -> None:
         """初始化界面布局"""
@@ -182,19 +189,20 @@ class ChatPanel(QWidget):
         self._msg_layout.setEnabled(False)  # 禁用自动布局
         layout.addLayout(self._msg_layout)
 
-        # 输入框外壳
+        # 输入框外壳（galgame 风格：半透明暗色底 + 暖色边框）
         self._input_frame = QFrame(self)
         self._input_frame.setFixedHeight(40)
-        self._input_frame.setStyleSheet("""
-            QFrame {
-                background-color: #FFFFFF;
-                border: 1px solid #E0E0E0;
-                border-radius: 20px;
-            }
-        """)
+        self._update_input_frame_style(focused=False)
+
         frame_layout = QHBoxLayout(self._input_frame)
-        frame_layout.setContentsMargins(12, 0, 12, 0)
-        frame_layout.setSpacing(0)
+        frame_layout.setContentsMargins(8, 0, 12, 0)
+        frame_layout.setSpacing(6)
+
+        # 语音转文字按钮
+        self._voice_btn = ChatPanel._VoiceButton(self._input_frame)
+        self._voice_btn.long_press_confirmed.connect(self._on_voice_long_press)
+        self._voice_btn.press_released.connect(self._on_voice_released)
+        frame_layout.addWidget(self._voice_btn)
 
         self._input = QLineEdit(self._input_frame)
         self._input.setPlaceholderText("跟葵酱说点什么吧~ ✨")
@@ -206,9 +214,13 @@ class ChatPanel(QWidget):
                 outline: none;
                 font-family: "Microsoft YaHei";
                 font-size: 10pt;
-                color: #333333;
+                color: #4A3F3A;
+            }
+            QLineEdit::placeholder {
+                color: rgba(140, 130, 125, 0.55);
             }
         """)
+        self._input.installEventFilter(self)
         frame_layout.addWidget(self._input)
         layout.addWidget(self._input_frame)
 
@@ -559,3 +571,193 @@ class ChatPanel(QWidget):
             self.raise_()
         if hasattr(self, "_input") and self._input is not None:
             self._input.setFocus()
+
+    # ---- 语音输入 ----
+
+    def _on_voice_long_press(self) -> None:
+        """长按确认：开始录音（录制前检测模型，避免白录）"""
+        if self._stt is None:
+            return
+        from voice.stt_provider import is_model_available
+        if not is_model_available():
+            # 弹窗前恢复按钮样式，避免对话框关闭后按钮卡在 recording 状态
+            self._voice_btn.reset_style()
+            from ui.model_download_dialog import ModelDownloadDialog
+            dialog = ModelDownloadDialog(self)
+            result = dialog.exec()
+            if result != QDialog.DialogCode.Accepted:
+                return
+            # 下载完成，提示用户再次长按开始录音（不自动开始，因为弹窗已打断操作流程）
+            self.add_message("葵酱：模型下载好啦，请再次长按麦克风按钮说话哦~", is_user=False)
+            return
+        # 取消之前的自动停止定时器（防止重叠）
+        if hasattr(self, "_auto_stop_timer") and self._auto_stop_timer is not None:
+            self._auto_stop_timer.stop()
+            self._auto_stop_timer = None
+        # 清空输入框，确保 placeholder 可见
+        self._input.clear()
+        self._stt.start_recording()
+        logger.info("语音录制开始")
+        # 显示明显的"正在聆听"提示，并禁用键盘输入避免冲突
+        self._input.setPlaceholderText("🎙 正在聆听... 松开按钮结束录音")
+        self._input.setEnabled(False)
+        # 启动自动停止定时器（后备：防止鼠标移出窗口释放等导致 mouseReleaseEvent 丢失）
+        self._auto_stop_timer = QTimer(self)
+        self._auto_stop_timer.setSingleShot(True)
+        self._auto_stop_timer.timeout.connect(self._auto_stop_recording)
+        self._auto_stop_timer.start(15000)  # 15 秒后备超时
+
+    def _auto_stop_recording(self) -> None:
+        """自动停止录音（极端情况后备：grabMouse 失效时兜底）"""
+        logger.info("录音自动停止（超时后备）")
+        self._auto_stop_timer = None
+        self._voice_btn.reset_style()  # 释放鼠标捕获
+        self._restore_input_after_recording()
+        if self._stt:
+            self._stt.stop_recording_and_transcribe(self._on_transcribe_done)
+
+    def _on_voice_released(self, valid: bool) -> None:
+        """松开按钮：结束录音并转文字"""
+        # 取消自动停止定时器
+        if hasattr(self, "_auto_stop_timer") and self._auto_stop_timer is not None:
+            self._auto_stop_timer.stop()
+            self._auto_stop_timer = None
+        if not valid:
+            self.add_message("葵酱：按住时间太短啦，请长按麦克风按钮说话哦~", is_user=False)
+            return
+        if self._stt is None:
+            self.add_message("葵酱：语音功能暂时不可用呢~", is_user=False)
+            return
+        self._restore_input_after_recording()
+        self._stt.stop_recording_and_transcribe(self._on_transcribe_done)
+
+    def _restore_input_after_recording(self) -> None:
+        """录音结束后恢复输入框状态"""
+        self._input.setPlaceholderText("跟葵酱说点什么吧~ ✨")
+        self._input.setEnabled(True)
+
+    def _on_transcribe_done(self, text: str) -> None:
+        """转录完成回调（在主线程执行）"""
+        if text:
+            self._input.setText(text)
+            self._input.setFocus()
+            logger.info(f"语音转文字成功: {text[:30]}...")
+        else:
+            self.add_message("葵酱：没有听清呢，请再试一次吧~", is_user=False)
+
+    # ---- 输入框样式 ----
+
+    def _update_input_frame_style(self, focused: bool = False) -> None:
+        """更新输入框外壳样式（galgame 风格）"""
+        if focused:
+            self._input_frame.setStyleSheet("""
+                QFrame {
+                    background-color: rgba(255, 248, 243, 0.95);
+                    border: 2px solid rgba(255, 170, 160, 0.85);
+                    border-radius: 10px;
+                }
+            """)
+        else:
+            self._input_frame.setStyleSheet("""
+                QFrame {
+                    background-color: rgba(255, 250, 245, 0.92);
+                    border: 1.5px solid rgba(255, 200, 195, 0.6);
+                    border-radius: 10px;
+                }
+            """)
+
+    def eventFilter(self, obj, event) -> bool:
+        """监听输入框 focus 事件以切换外壳样式"""
+        if obj is self._input:
+            if event.type() == QEvent.Type.FocusIn:
+                self._update_input_frame_style(focused=True)
+            elif event.type() == QEvent.Type.FocusOut:
+                self._update_input_frame_style(focused=False)
+        return super().eventFilter(obj, event)
+
+    # ---- 内部类：语音按钮 ----
+
+    class _VoiceButton(QWidget):
+        """语音转文字按钮：支持长按检测"""
+
+        long_press_confirmed = Signal()
+        press_released = Signal(bool)  # bool = 是否是有效长按
+
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self._pressing = False
+            self._confirmed = False
+            self._min_ms = 300
+
+            self.setFixedSize(28, 28)
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+            self._icon = QLabel("🎙", self)
+            self._icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout = QVBoxLayout(self)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.addWidget(self._icon)
+
+            self._timer = QTimer(self)
+            self._timer.setSingleShot(True)
+            self._timer.timeout.connect(self._on_timer_timeout)
+
+            self._set_style("normal")
+
+        def _set_style(self, state: str) -> None:
+            if state == "recording":
+                self.setStyleSheet("""
+                    QWidget {
+                        background-color: rgba(220, 100, 100, 0.75);
+                        border-radius: 8px;
+                    }
+                """)
+            elif state == "pending":
+                self.setStyleSheet("""
+                    QWidget {
+                        background-color: rgba(200, 160, 140, 0.55);
+                        border-radius: 8px;
+                    }
+                """)
+            else:
+                self.setStyleSheet("""
+                    QWidget {
+                        background-color: rgba(200, 160, 140, 0.35);
+                        border-radius: 8px;
+                    }
+                    QWidget:hover {
+                        background-color: rgba(200, 160, 140, 0.5);
+                    }
+                """)
+
+        def mousePressEvent(self, event) -> None:
+            if event.button() == Qt.MouseButton.LeftButton:
+                self._pressing = True
+                self._confirmed = False
+                self._set_style("pending")
+                self._timer.start(self._min_ms)
+                self.grabMouse()  # 捕获鼠标，移出窗口后仍能收到 release
+
+        def _on_timer_timeout(self) -> None:
+            if self._pressing:
+                self._confirmed = True
+                self._set_style("recording")
+                self.long_press_confirmed.emit()
+
+        def mouseReleaseEvent(self, event) -> None:
+            if event.button() == Qt.MouseButton.LeftButton:
+                self.releaseMouse()
+                if self._pressing:
+                    self._pressing = False
+                    self._timer.stop()
+                    valid = self._confirmed
+                    self._set_style("normal")
+                    self.press_released.emit(valid)
+
+        def reset_style(self) -> None:
+            """外部调用：强制恢复按钮为 normal 状态"""
+            self.releaseMouse()
+            self._pressing = False
+            self._confirmed = False
+            self._timer.stop()
+            self._set_style("normal")

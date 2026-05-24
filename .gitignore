@@ -48,3 +48,6 @@ tmp/
 
 # Live2D 模型文件（版权原因不随仓库分发）
 resources/model/
+
+# 语音转文字模型（体积大，首次运行时自动下载或手动放置）
+resources/whisper/tiny/
