@@ -27,6 +27,10 @@ logger = get_logger(__name__)
 _DEFAULT_WIDTH = 400
 _DEFAULT_HEIGHT = 600
 
+# 角色底部占窗口高度的比例（从顶部算起），用于限制聊天面板位置
+# 经实际视觉微调：haru 模型脚部约在 95.5% 高度处
+_CHARACTER_BOTTOM_RATIO = 0.955
+
 # Windows API 常量
 WS_EX_TRANSPARENT = 0x00000020
 GWL_EXSTYLE = -20
@@ -146,6 +150,13 @@ class MainWindow(QMainWindow):
         self._action_top.triggered.connect(self._toggle_topmost)
         self._menu.addAction(self._action_top)
 
+        # ---- 任务栏吸附 ----
+        self._action_snap = QAction("任务栏吸附", self)
+        self._action_snap.setCheckable(True)
+        self._action_snap.setChecked(True)  # 默认开启
+        self._action_snap.triggered.connect(self._toggle_snap)
+        self._menu.addAction(self._action_snap)
+
         self._menu.addSeparator()
 
         # ---- 角色大小子菜单 ----
@@ -254,28 +265,64 @@ class MainWindow(QMainWindow):
             logger.debug(f"穿透更新异常: {e}")
 
     def _move_to_default_position(self) -> None:
-        """将窗口移动到屏幕右下角"""
+        """将窗口移动到屏幕右下角，角色底部贴住任务栏顶部"""
         screen = QApplication.primaryScreen().availableGeometry()
         x = screen.right() - _DEFAULT_WIDTH - 20
-        y = screen.bottom() - _DEFAULT_HEIGHT - 20
+        # 垂直方向吸附：角色底部贴住任务栏顶部
+        if hasattr(self, '_action_snap') and self._action_snap.isChecked():
+            y = screen.bottom() - int(_DEFAULT_HEIGHT * _CHARACTER_BOTTOM_RATIO)
+        else:
+            y = screen.bottom() - _DEFAULT_HEIGHT - 20
         self.move(x, y)
 
     def _move_chat_to_bottom(self) -> None:
-        """将聊天面板移动到父窗口（central widget）底部居中"""
+        """将聊天面板定位到角色底部对齐"""
         if hasattr(self, '_chat'):
             chat = self._chat
             parent = chat.parentWidget()
             if parent:
                 chat_width = getattr(chat, '_base_width', 280)
                 cx = (parent.width() - chat_width) // 2
-                cy = parent.height() - chat.height() - 10
-                chat.move(cx, max(cy, 0))
+                # 聊天面板底部略低于角色底部，遮住一点脚部
+                character_bottom = int(parent.height() * _CHARACTER_BOTTOM_RATIO) + 3
+                cy = character_bottom - chat.height()
+                cy = max(cy, 0)
+                chat.move(cx, cy)
                 chat.raise_()
 
     def _on_resize(self, event) -> None:
         """窗口大小变化时，重新调整聊天面板位置"""
         super().resizeEvent(event)
         self._move_chat_to_bottom()
+
+    def _snap_to_taskbar(self) -> None:
+        """拖拽释放时：若角色底部靠近任务栏顶部则吸附"""
+        screen = QApplication.screenAt(self.geometry().center())
+        if not screen:
+            return
+
+        geo = screen.geometry()
+        avail = screen.availableGeometry()
+
+        # 只处理底部有任务栏的情况
+        if avail.bottom() >= geo.bottom():
+            return
+
+        taskbar_top = avail.bottom()
+        # 以角色底部为基准计算距离
+        character_bottom = self.y() + int(self.height() * _CHARACTER_BOTTOM_RATIO)
+        dist = taskbar_top - character_bottom
+
+        # 阈值 = 任务栏高度的一半（动态适应不同 DPI/屏幕）
+        taskbar_height = geo.bottom() - avail.bottom()
+        threshold = max(taskbar_height // 2, 10)
+
+        # 角色底部高于或低于任务栏顶部，只要在阈值内就吸附
+        if -threshold <= dist <= threshold:
+            if hasattr(self, '_action_snap') and self._action_snap.isChecked():
+                new_y = taskbar_top - int(self.height() * _CHARACTER_BOTTOM_RATIO)
+                self.move(self.x(), new_y)
+                logger.debug(f"角色底部吸附到任务栏顶部: y={self.y()}")
 
     # ---- 事件重写 ----
 
@@ -361,6 +408,14 @@ class MainWindow(QMainWindow):
             self._action_top.setChecked(True)
             logger.info("置顶已开启")
         self.show()
+
+    def _toggle_snap(self) -> None:
+        """切换任务栏吸附状态，开启时若已在阈值内则立即吸附"""
+        if self._action_snap.isChecked():
+            logger.info("任务栏吸附已开启")
+            self._snap_to_taskbar()
+        else:
+            logger.info("任务栏吸附已关闭")
 
     def _apply_scale(self, scale: float) -> None:
         """应用角色大小缩放"""

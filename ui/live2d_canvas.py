@@ -265,12 +265,17 @@ class Live2DCanvas(QOpenGLWidget):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        """鼠标释放：区分单击与拖拽，仅单击时触发 hit test"""
+        """鼠标释放：区分单击与拖拽，拖拽结束时尝试任务栏吸附"""
         if event.button() == Qt.MouseButton.LeftButton:
             self._dragging = False
             # 如果几乎没移动，视为单击，触发 hit test
             if not self._has_moved:
                 self._do_hit_test(event.position().x(), event.position().y())
+            # 无论单击还是拖拽，只要窗口靠近任务栏就尝试吸附
+            # （不靠近时 _snap_to_taskbar 内部什么都不做）
+            top_window = self.window()
+            if top_window and hasattr(top_window, "_snap_to_taskbar"):
+                top_window._snap_to_taskbar()
             self._has_moved = False
         super().mouseReleaseEvent(event)
 

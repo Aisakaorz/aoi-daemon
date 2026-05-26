@@ -561,13 +561,17 @@ class ChatPanel(QWidget):
         self._relayout_messages()
 
     def showEvent(self, event) -> None:
-        """显示时自定位到父窗口底部居中，并聚焦输入框"""
+        """显示时自定位到底部与角色底部对齐，并聚焦输入框"""
         super().showEvent(event)
         parent = self.parentWidget()
         if parent:
             cx = (parent.width() - self.width()) // 2
-            cy = parent.height() - self.height() - 10
-            self.move(cx, max(cy, 0))
+            # 聊天面板底部略低于角色底部，遮住一点脚部
+            # haru 模型脚部实际约占父窗口高度的 95.5%
+            character_bottom = int(parent.height() * 0.955) + 3
+            cy = character_bottom - self.height()
+            cy = max(cy, 0)
+            self.move(cx, cy)
             self.raise_()
         if hasattr(self, "_input") and self._input is not None:
             self._input.setFocus()
