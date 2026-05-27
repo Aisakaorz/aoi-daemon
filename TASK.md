@@ -92,6 +92,20 @@
 
 ---
 
+### v0.1.4 —— 空闲时自动播放动作
+- [✔] FR-LE-005: 角色空闲时每 10~15 秒自动随机播放动作
+- [✔] FR-LE-005: 动作列表扩充到 9 个（idle_00/01/02 + shake_00 + pinch_in_00 + pinch_out_00 + tap_body_00/01/02）
+- [✔] FR-LE-005: 自动播放动作不触发音效（仅动作切换，无声音）
+- [✔] FR-LE-005: Live2DCanvas 渲染循环中调用 state_machine.update(delta_time)
+- [✔] FR-LE-005: 空闲动作使用 NORMAL 优先级，确保能替换当前循环的 MotionPriority.IDLE 动作
+- [✔] FR-LE-005: _busy_timer 机制：播放期间阻止新的随机动作触发，避免重叠
+- [✔] FR-LE-005: 单击触发 TAP 时重置 _idle_timer，单击优先级高于随机播放
+- [✔] FR-LE-005: 非 IDLE 状态时（Thinking/Tap/Talking 等）不打断，保持当前动作，不触发随机动作
+- [✔] FR-LE-005: Live2DCanvas 渲染循环中调用 state_machine.update(delta_time)
+- [✔] FR-LE-005: 状态机 update() 中每 5~8 秒随机触发 _notify(IDLE)，经优先级映射后走 MotionPriority.IDLE
+
+---
+
 ### v0.2 —— 接入真实 AI
 - [ ] FR-AI-001: 实现真实 HTTP POST（requests，30s 超时）
 - [ ] FR-AI-001: 解析 choices[0].message.content

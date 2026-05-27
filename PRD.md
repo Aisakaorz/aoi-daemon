@@ -63,8 +63,8 @@
 
 | 状态 | 可用动作文件 | 触发条件 |
 |------|-------------|---------|
-| Idle | idle_00.mtn / idle_01.mtn / idle_02.mtn | 默认循环 |
-| Greeting | idle_00.mtn | 启动时播放一次 |
+| Idle | idle_00~02 / shake_00 / pinchIn_00 / pinchOut_00 / tapBody_00~02 | 空闲时 10~15 秒随机轮播 |
+| Greeting | shake_00 | 启动时播放一次 |
 | Thinking | idle_01.mtn | 用户发送后等待 API 回复期间 |
 | Talking | idle_00.mtn | TTS 播放期间 |
 | Happy | pinchOut_00.mtn | AI 回复情感积极 |
@@ -243,6 +243,15 @@ AoiDaemon/
 - 应用启动时默认吸附到任务栏顶部
 - 聊天面板底部与角色底部对齐，向下偏移 3px 遮住一点脚部
 - 多屏幕兼容（`QApplication.screenAt` 获取当前屏幕）
+
+### v0.1.4 —— 空闲时自动播放动作
+- 角色空闲时每 10~15 秒自动随机播放动作，避免单调
+- 动作列表扩充到 9 个：idle 微表情 + shake 摇头 + pinch_in/out 捏脸 + tap_body 身体互动
+- Live2DCanvas 渲染循环中驱动 state_machine.update(delta_time)
+- 空闲动作使用 NORMAL 优先级，确保能替换当前循环的 idle 动作
+- 动作播放期间（_busy_timer）阻止新的随机动作触发，避免重叠
+- 单击触发 TAP 时重置 idle 计时器，单击优先级高于随机播放
+- 自动播放不触发音效
 
 ### v0.2 —— 接入真实 AI
 - 接入 Kimi Claw API 真实 HTTP 请求（替换占位模式）

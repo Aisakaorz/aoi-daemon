@@ -156,6 +156,8 @@ class Live2DCanvas(QOpenGLWidget):
                 self._model.update(1.0 / 60.0)
                 # 再覆盖参数（视线、呼吸）
                 self._update_model_params()
+                # 状态机更新（空闲时自动轮播 idle 动作，不播放声音）
+                self._state.update(1.0 / 60.0)
                 # 绘制
                 self._model.draw()
 
@@ -218,6 +220,10 @@ class Live2DCanvas(QOpenGLWidget):
 
     def _on_state_motion(self, group: str, no: int, priority: int) -> None:
         """状态机动作回调"""
+        # 空闲时自动播放动作需要能替换当前循环的 idle 动作，
+        # 将优先级提升到 NORMAL 以覆盖正在播放的 MotionPriority.IDLE 动作
+        if self._state.current_state == CharacterState.IDLE:
+            priority = max(priority, 15)
         self._model.start_motion(group, no, priority)
 
     def _on_state_change(self, state: CharacterState) -> None:
@@ -323,7 +329,7 @@ class Live2DCanvas(QOpenGLWidget):
         if not self._model.is_initialized:
             return
 
-        # 动作播放期间忽略点击，避免重叠触发
+        # 非 IDLE 状态时忽略点击（单击触发 TAP 等状态期间）
         if self._state.current_state != CharacterState.IDLE:
             logger.debug(f"点击被忽略，当前状态: {self._state.current_state}")
             return

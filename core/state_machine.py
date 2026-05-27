@@ -34,8 +34,13 @@ class StateMachine:
     # 各状态对应的动作文件映射（MotionGroup -> motion_no）
     # Phase 1 仅实现基础状态，Phase 2 扩展 Talking 等
     _STATE_MOTIONS: dict[CharacterState, list[tuple[str, int]]] = {
+        # 空闲时轮播：idle 微表情 + shake 摇头 + pinch 捏脸 + tap_body 身体互动
+        # 动作丰富度：从细微表情到大幅度动作，避免单调
         CharacterState.IDLE: [
             ("idle", 0), ("idle", 1), ("idle", 2),
+            ("shake", 0),
+            ("pinch_out", 0), ("pinch_in", 0),
+            ("tap_body", 0), ("tap_body", 1), ("tap_body", 2),
         ],
         CharacterState.GREETING: [
             ("shake", 0),
@@ -86,7 +91,8 @@ class StateMachine:
         self._previous_state: Optional[CharacterState] = None
         self._motion_callback = motion_callback
         self._state_change_callback = state_change_callback
-        self._idle_timer = 0.0  # 用于空闲时随机切换动作
+        self._idle_timer = 0.0   # 用于空闲时随机切换动作
+        self._busy_timer = 0.0   # 动作播放中计时器，>0 时忽略单击
         logger.info("状态机初始化完成")
 
     @property
@@ -129,6 +135,10 @@ class StateMachine:
         priority = self._get_priority(state)
         logger.debug(f"状态变更: {self._previous_state} -> {state}, motion=({group}, {no}), priority={priority}")
 
+        # 设置动作忙计时器：idle 微表情约 2 秒，非 idle 动作约 3 秒
+        if state == CharacterState.IDLE:
+            self._busy_timer = 2.0 if group == "idle" else 3.0
+
         if self._motion_callback:
             try:
                 self._motion_callback(group, no, priority)
@@ -156,11 +166,17 @@ class StateMachine:
         self._notify(new_state)
         return True
 
+    def is_busy(self) -> bool:
+        """是否有动作正在播放中（此时应忽略单击）"""
+        return self._busy_timer > 0
+
     def force_transit(self, new_state: CharacterState) -> None:
         """
         强制切换到新状态（无视优先级）
         用于非循环动作播放完毕后的恢复，或特殊场景
         """
+        self._idle_timer = 0.0   # 重置 idle 计时器
+        self._busy_timer = 0.0   # 清除忙状态
         self._previous_state = self._current_state
         self._current_state = new_state
         self._notify(new_state)
@@ -180,9 +196,12 @@ class StateMachine:
         每帧更新（目前仅用于空闲动作轮播）
         :param delta_time: 距离上一帧的时间（秒）
         """
-        if self._current_state == CharacterState.IDLE:
+        if self._busy_timer > 0:
+            self._busy_timer -= delta_time
+
+        if self._current_state == CharacterState.IDLE and self._busy_timer <= 0:
             self._idle_timer += delta_time
-            # 每 5~8 秒随机切换一次 idle 动作，避免单调
-            if self._idle_timer >= random.uniform(5.0, 8.0):
+            # 每 10~15 秒随机切换一次 idle 动作，避免单调且不过于频繁
+            if self._idle_timer >= random.uniform(10.0, 15.0):
                 self._idle_timer = 0.0
                 self._notify(CharacterState.IDLE)
