@@ -31,6 +31,7 @@
 - 窗口置顶（checkable，默认开启）
 - 任务栏吸附（checkable，默认开启；关闭后拖拽不再自动吸附）
 - 角色大小（子菜单：小 0.75x / 中 1.0x / 大 1.25x）
+- 语音转文字模型（子菜单：显示模型名称，已下载显示勾选，未下载点击弹窗）
 - 关于
 - 退出
 
@@ -51,6 +52,7 @@
 
 **FR-LE-003 鼠标交互映射**
 - 视线跟踪：鼠标归一化坐标 (-1~1) -> ParamEyeBallX / ParamEyeBallY
+- 全局视线跟踪：即使鼠标离开窗口，角色也会持续看向鼠标方向（QCursor 全局定时器，16ms 刷新）
 - 头部跟随：ParamAngleX / ParamAngleY / ParamAngleZ（轻微幅度）
 - 呼吸动画：正弦波驱动 ParamBreath，周期 3~4 秒
 
@@ -92,24 +94,33 @@
 - 面板底部与角色底部对齐（约占窗口高度 95.5%），并向下偏移 3px 遮住一点脚部，避免遮挡角色腿部
 
 **FR-CH-002 文本输入与语音输入**
-- Enter 发送，Shift+Enter 换行
+- Enter 发送（当前使用单行 QLineEdit，Shift+Enter 换行待 v0.5 设置窗口中升级为 QTextEdit 后支持）
 - placeholder：跟葵酱说点什么吧~
 - 发送后清空输入框，触发 Thinking 状态
 - **语音按钮**：输入框左侧 🎙 按钮，长按 300ms 开始录音，松开结束
   - 录音时清空输入框，placeholder 变为 "🎙 正在聆听... 松开按钮结束录音"
   - 输入框禁用键盘输入（避免语音与键盘冲突）
+  - 录音时语音按钮实时显示音量可视化（从下到上填充红色音量条，RMS 归一化）
   - 录音结果直接填入输入框，用户自行回车发送
   - 单击或长按不够时，显示提示气泡（葵酱的提醒）
+  - STT 初始化失败静默降级（模型缺失/依赖异常时语音按钮失效，应用不崩溃）
 - **输入框 galgame 风格**：
   - 暖白底 rgba(255,250,245) + 珊瑚粉边框 rgba(255,200,195)
   - focus 时 2px 高亮边框 + 外发光
   - 圆角 10px，字体 #4A3F3A
 - 语音按钮与输入框随面板宽度同步缩放
 
-**FR-CH-003 模型下载对话框**
-- 首次使用 STT 且本地无模型时弹出确认对话框
-- 确认后显示进度条，后台下载 faster-whisper tiny 模型（~39MB）
-- 支持取消下载（终止线程并清空已下载内容）
+**FR-CH-003 模型下载与进度**
+- 菜单栏「语音转文字模型」中选择未下载的模型时直接开始下载
+- 开始下载时弹出气泡提示「开始下载语音模型啦，请稍候~」
+- 下载进度常驻在输入框位置：隐藏输入框，显示 ⏳ 图标 + 已下载/总大小/当前速度
+- 下载进度使用渐变背景（从左到右珊瑚粉渐变填充，与输入框 focus 边框风格统一）
+- 点击 ⏳ 图标取消下载，悬停时图标变为 ❌，点击触发取消
+- 取消采用协作式方案（HFProgressBar._cancelled 标志位 + RuntimeError 异常），不使用 terminate
+- 后台下载期间，托盘 tooltip 实时显示进度（百分比、速度）
+- 下载完成/失败/取消均通过气泡消息 + 托盘通知反馈
+- 下载完成自动设为当前模型（如果用户此前未选择过任何模型）
+- 菜单打开时自动检测模型完整性（模型文件被删除后自动取消勾选状态）
 - 下载失败友好提示（网络超时、连接失败等）
 
 **FR-CH-004 对话历史**
@@ -136,13 +147,15 @@
 ### 2.5 语音系统
 
 **FR-VO-001 语音输入 (STT)**
-- faster-whisper tiny 模型本地推理（~39MB，存放于 resources/whisper/tiny/）
+- faster-whisper tiny 模型本地推理（~75MB，存放于 resources/whisper/tiny/）
 - 长按语音按钮 300ms 开始录音，松开结束
 - sounddevice InputStream 非阻塞录制，16kHz, 16bit, 单声道
-- 录音保存为临时 WAV，转录完成后自动清理
+- 录音保存为固定路径临时 WAV，程序退出时统一清理
 - 转录结果填入输入框
 - `grabMouse()` 捕获鼠标，移出窗口松开也能正常停止录音
 - 15 秒自动停止后备（防止 grabMouse 失效等极端情况）
+- 模型未下载时，长按语音按钮不弹窗，改为气泡提示「请去菜单栏下载语音转文字模型」
+- 模型下载中时，长按语音按钮气泡提示「当前模型下载中，请稍候再试」
 
 **FR-VO-002 语音输出 (TTS)**
 - edge-tts，中文女声（zh-CN-XiaoxiaoNeural / zh-CN-XiaoyiNeural）
@@ -185,25 +198,23 @@ AoiDaemon/
 ├── ui/
 │   ├── main_window.py      # 透明无边框置顶窗口/拖拽/缩放/菜单
 │   ├── live2d_canvas.py    # QOpenGLWidget + live2d-py 渲染
-│   ├── chat_panel.py       # 聊天气泡面板 + 输入框 + 语音按钮
-│   ├── model_download_dialog.py  # STT 模型下载确认+进度对话框
+│   ├── chat_panel.py       # 聊天气泡面板 + 输入框 + 语音按钮 + 下载进度
 │   ├── tray_icon.py        # 系统托盘
 │   └── __init__.py
 ├── l2d/                    # Live2D 业务封装（避免与第三方 live2d-py 包名冲突）
 │   ├── __init__.py         # Monkey-patch MeshContext 导入 bug
-│   ├── model_wrapper.py    # LAppModel 封装
-│   └── motion_manager.py   # 动作播放管理（优先级/队列/回调）
+│   └── model_wrapper.py    # LAppModel 封装 + 动作播放管理
 ├── ai/
 │   ├── __init__.py
 │   ├── base_provider.py    # AI Provider 抽象基类
 │   └── kimi_claw_provider.py
 ├── voice/
 │   ├── __init__.py
+│   ├── model_manager.py    # 模型注册表 + 下载管理器（后台下载、进度跟踪）
 │   └── stt_provider.py     # STT 封装：AudioRecorder + faster-whisper
 ├── utils/
 │   ├── __init__.py
-│   ├── logger.py
-│   └── helpers.py
+│   └── logger.py
 ├── lib/
 │   ├── Core.dll            # Windows（需自行下载）
 │   └── libCore.dylib       # macOS（需自行下载）
@@ -230,7 +241,7 @@ AoiDaemon/
 
 ### v0.1.2 —— 语音输入与输入框美化
 - 输入框左侧语音转文字按钮（🎙 图标，长按 300ms 录音/松开转录）
-- faster-whisper tiny 本地语音转文字，录音保存为临时 WAV
+- faster-whisper tiny 本地语音转文字，录音保存为固定路径临时 WAV
 - 输入框 galgame 风格美化（暖白底+珊瑚粉边框+focus 高亮外发光）
 - 首次使用 STT 时检测本地模型，无模型则弹出下载对话框（带进度条）
 - `grabMouse()` 确保移出窗口松开也能正常停止录音
@@ -252,6 +263,16 @@ AoiDaemon/
 - 动作播放期间（_busy_timer）阻止新的随机动作触发，避免重叠
 - 单击触发 TAP 时重置 idle 计时器，单击优先级高于随机播放
 - 自动播放不触发音效
+
+### v0.1.5 —— 语音模型下载入口重构
+- 长按语音按钮时：模型未下载不再弹窗，改为气泡提示「请去菜单栏下载语音转文字模型」
+- 菜单栏「角色大小」下方新增「语音转文字模型」子菜单（显示模型名称，如 Whisper Tiny）
+- 已下载模型显示勾选，单击直接切换；未下载模型单击弹出下载对话框
+- 下载对话框显示模型名称和大小，保留「下载」和「取消」按钮
+- 点击「下载」后按钮变为可点击的「后台下载」，进度条附近显示已下载/总大小/速度
+- 点击「后台下载」关闭弹窗，托盘 tooltip 实时显示下载进度
+- 下载完成/失败时托盘气泡通知
+- 后台下载期间长按语音按钮，气泡提示「当前模型下载中，请稍候再试」
 
 ### v0.2 —— 接入真实 AI
 - 接入 Kimi Claw API 真实 HTTP 请求（替换占位模式）
@@ -341,12 +362,15 @@ class Live2DModelWrapper:
 6. **纹理参数**：加载贴图后必须设置 `GL_TEXTURE_WRAP_S/T = GL_CLAMP_TO_EDGE` 和 `GL_TEXTURE_MIN/MAG_FILTER = GL_NEAREST`，否则出现接缝线。
 7. **FFmpeg stderr**：Qt 多媒体播放 MP3 时 C 库会写 stderr（fd 2）， bypass Python sys.stderr。需在 `main.py` 开头用 `os.dup2` 将 fd 2 重定向到 devnull，同时恢复 Python `sys.stderr` 绑定到原始 fd。
 8. **QGraphicsOpacityEffect 不兼容**：Qt6 中 `QGraphicsOpacityEffect` + `border-radius` 会导致动画期间变方。解决方案：用 `QPainter.setOpacity()` 在 QWidget 上自绘圆角矩形和文本。
-9. **QBoxLayout 压缩 spacing**：`QVBoxLayout` 空间不足时会优先压缩 `spacing` 导致气泡重叠。解决方案：禁用自动布局（`setEnabled(False)`），手动计算每条消息的 y 坐标。
+9. **QBoxLayout 压缩 spacing**：`QVBoxLayout` 空间不足时会优先压缩 `spacing` 导致气泡重叠。解决方案：保留 `QVBoxLayout` 作为容器（启用状态确保气泡可见），但用 `setGeometry` 手动覆盖每条消息的 y 坐标，并拦截 `LayoutRequest` 事件立即重布局。
 10. **widget 首次显示前 height() 返回 0**：手动布局时 `w.height()` 在 widget 首次显示前可能返回 0。解决方案：创建 widget 时存储 `_layout_height` 属性，所有布局计算使用该属性值。
-11. **faster-whisper 模型下载**：首次运行自动从 HuggingFace 下载 tiny 模型（~39MB），应用内弹窗带进度条。也可手动放置到 `resources/whisper/tiny/`。
+11. **faster-whisper 模型下载**：通过菜单栏「语音转文字模型」选择并下载，支持后台下载，托盘实时显示进度。也可手动放置到 `resources/whisper/tiny/`。
 12. **grabMouse 与模态对话框冲突**：`_VoiceButton` 长按录音时调用 `grabMouse()`，若此时弹出模态下载对话框，需在弹窗前调用 `releaseMouse()` 或 `reset_style()` 释放捕获，否则对话框可能无法交互。
 13. **角色底部比例需视觉微调**：Live2D 模型在窗口内的实际视觉底部无法通过代码精确计算（hit test 区域 ≠ 视觉边界），需运行后目视微调 `_CHARACTER_BOTTOM_RATIO`。haru 模型经实际微调后约为 0.955。
 14. **任务栏高度差异**：不同屏幕/DPI 下任务栏高度不同（40px ~ 75px），吸附阈值应使用任务栏高度的一半动态计算，避免固定阈值在某些屏幕上过大或过小。
-13. **API Key 安全**：不要硬编码，使用环境变量或本地加密配置文件。开源前检查 .gitignore 排除 config.yaml 和 .env。
-14. **Live2D 模型版权**：开源仓库不放完整模型。本项目演示使用的 haru 模型来源于 hexo-helper-live2d 项目，版权归属 Live2D Inc.。README 需注明模型文件需用户自行提供。
-15. **macOS 权限**：首次运行可能需授予麦克风权限（STT）和辅助功能权限（开机自启）。
+15. **顶部透明化区域动态增长**：固定 fade_zone = 150px 会导致面板较矮时过早淡出。解决方案：使用固定 threshold = max_available_h - _FADE_ZONE，fade_zone = min(total_msg_h - threshold, _FADE_ZONE)，从 0 逐渐增长到 150px。
+16. **底部截断不要用 opacity**：用 `opacity = 0` 截断底部消息会导致气泡物理区域仍覆盖输入框（鼠标事件被拦截）。解决方案：使用 `QRegion` + `setMask()` 硬裁剪，同时配合 `raise_()` 确保输入框在气泡之上。
+17. **输入框 z-order 管理**：新消息加入时 Qt 可能将其置于输入框之上。解决方案：在 `add_message()` 和 `show_typing_indicator()` 中调用 `self._input_frame.raise_()`。
+18. **API Key 安全**：不要硬编码，使用环境变量或本地加密配置文件。开源前检查 .gitignore 排除 config.yaml 和 .env。
+19. **Live2D 模型版权**：开源仓库不放完整模型。本项目演示使用的 haru 模型来源于 hexo-helper-live2d 项目，版权归属 Live2D Inc.。README 需注明模型文件需用户自行提供。
+20. **macOS 权限**：首次运行可能需授予麦克风权限（STT）和辅助功能权限（开机自启）。

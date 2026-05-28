@@ -10,7 +10,7 @@ import ctypes
 from ctypes import wintypes
 from typing import Optional
 
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QApplication
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QApplication, QSystemTrayIcon
 from PySide6.QtCore import Qt, QPoint, QByteArray, QTimer
 from PySide6.QtGui import QMouseEvent
 
@@ -68,6 +68,7 @@ class MainWindow(QMainWindow):
         self._setup_tray()
         self._build_shared_menu()
         self._setup_passthrough_timer()
+        self._setup_download_tracking()
 
         # 窗口初始位置：屏幕右下角
         self._move_to_default_position()
@@ -175,6 +176,10 @@ class MainWindow(QMainWindow):
 
         self._menu.addMenu(size_menu)
 
+        # ---- 语音转文字模型子菜单 ----
+        self._stt_menu = self._build_stt_menu()
+        self._menu.addMenu(self._stt_menu)
+
         self._menu.addSeparator()
 
         # ---- 关于 ----
@@ -187,11 +192,128 @@ class MainWindow(QMainWindow):
         action_quit.triggered.connect(self._on_quit)
         self._menu.addAction(action_quit)
 
-        # 菜单显示前更新动态文字
+        # 菜单显示前更新动态文字和模型完整性
         self._menu.aboutToShow.connect(self._update_menu_text)
 
         # 同时设置给托盘
         self._tray.set_menu(self._menu)
+
+    def _build_stt_menu(self):
+        """构建语音转文字模型子菜单"""
+        from PySide6.QtWidgets import QMenu
+        from PySide6.QtGui import QAction, QActionGroup
+        from voice.model_manager import get_available_models, get_current_model_id
+
+        stt_menu = QMenu("语音转文字模型", self)
+        self._stt_group = QActionGroup(self)
+        self._stt_group.setExclusive(True)
+
+        for model_id, config in get_available_models().items():
+            action = QAction(config["name"], self, checkable=True)
+            action.setData(model_id)
+            action.setChecked(model_id == get_current_model_id())
+            action.triggered.connect(lambda checked, m=model_id: self._on_stt_model_selected(m))
+            self._stt_group.addAction(action)
+            stt_menu.addAction(action)
+
+        return stt_menu
+
+    def _ensure_chat_visible(self) -> None:
+        """确保聊天面板可见并正确定位（保持窗口位置不变）"""
+        if not self._chat.isVisible():
+            pos = self.pos()
+            self._chat.show()
+            self.move(pos)
+            self._move_chat_to_bottom()
+
+    def _on_stt_model_selected(self, model_id: str) -> None:
+        """菜单中选择语音模型：未下载则直接开始下载并显示进度，已下载则切换"""
+        from voice.model_manager import is_model_downloaded, set_current_model_id, get_download_manager
+
+        if not is_model_downloaded(model_id):
+            dm = get_download_manager()
+            if dm.is_downloading():
+                self._chat.add_message("葵酱：当前正在下载模型呢，请稍后再试哦~", is_user=False)
+                return
+            set_current_model_id(model_id)
+            dm.start_download(model_id)
+            self._update_stt_menu_state()
+            self._chat.add_message("葵酱：开始下载语音模型啦，请稍候~", is_user=False)
+            self._ensure_chat_visible()
+            self._chat.show_download_progress()
+            return
+
+        set_current_model_id(model_id)
+        self._update_stt_menu_state()
+        from voice.model_manager import get_available_models
+        name = get_available_models()[model_id]["name"]
+        self._chat.add_message(f"葵酱：已切换到 {name}~", is_user=False)
+        self._ensure_chat_visible()
+        logger.info(f"语音模型切换为 {model_id}")
+
+    def _update_stt_menu_state(self) -> None:
+        """更新语音模型菜单的选中状态"""
+        from voice.model_manager import get_current_model_id
+        current = get_current_model_id()
+        for action in self._stt_group.actions():
+            action.setChecked(action.data() == current)
+
+    def _check_stt_model_integrity(self) -> None:
+        """菜单打开时检测当前选中的模型是否仍完整存在"""
+        from voice.model_manager import get_current_model_id, is_model_downloaded, set_current_model_id
+        current = get_current_model_id()
+        if current is not None and not is_model_downloaded(current):
+            set_current_model_id(None)
+            self._update_stt_menu_state()
+
+    def _setup_download_tracking(self) -> None:
+        """连接下载管理器信号，在托盘显示下载进度"""
+        from voice.model_manager import get_download_manager
+        dm = get_download_manager()
+        dm.progress.connect(self._on_download_progress)
+        dm.finished.connect(self._on_download_finished)
+        dm.download_started.connect(self._on_download_started)
+        dm.download_stopped.connect(self._on_download_stopped)
+
+    def _on_download_started(self, model_id: str) -> None:
+        # 在输入框位置显示常驻进度条
+        self._ensure_chat_visible()
+        self._chat.show_download_progress()
+
+    def _on_download_stopped(self) -> None:
+        self._tray.update_tooltip()
+
+    def _on_download_progress(self, model_id, pct, downloaded, total, speed):
+        from voice.model_manager import get_available_models
+        name = get_available_models()[model_id]["name"]
+        detail = f"下载 {name}: {pct}%"
+        if speed:
+            detail += f" ({speed})"
+        self._tray.update_tooltip(detail)
+
+    def _on_download_finished(self, model_id, success, message):
+        from voice.model_manager import get_available_models
+        name = get_available_models()[model_id]["name"]
+        self._tray.update_tooltip()
+        if success:
+            self._tray.show_message("下载完成", f"{name} 已下载完成，可以使用语音输入啦~")
+            self._chat.add_message(f"葵酱：{name} 下载完成啦，可以使用语音输入了哦~", is_user=False)
+            # 下载完成自动打开聊天面板
+            self._ensure_chat_visible()
+            # 如果当前没有设置模型，自动设置为刚下载的
+            from voice.model_manager import get_current_model_id, set_current_model_id
+            if get_current_model_id() != model_id:
+                set_current_model_id(model_id)
+                self._update_stt_menu_state()
+        else:
+            if message == "已取消":
+                self._chat.add_message("葵酱：下载已取消，资源已清理~", is_user=False)
+                return
+            friendly = message
+            if any(k in message for k in ("10060", "10054", "Connection", "Timeout")):
+                friendly = "网络连接失败"
+            self._tray.show_message("下载失败", f"{name} {friendly}，请重试", QSystemTrayIcon.MessageIcon.Warning)
+            self._chat.add_message(f"葵酱：下载失败 — {friendly}，请重试~", is_user=False)
 
     def _setup_passthrough_timer(self) -> None:
         """
@@ -365,6 +487,8 @@ class MainWindow(QMainWindow):
         else:
             self._action_chat.setText("想和葵酱聊天")
 
+        self._check_stt_model_integrity()
+
     def _toggle_chat_panel(self) -> None:
         """
         切换聊天面板显示/隐藏
@@ -492,6 +616,10 @@ class MainWindow(QMainWindow):
 
     def _on_quit(self) -> None:
         """退出应用"""
+        from voice.model_manager import get_download_manager
+        dm = get_download_manager()
+        if dm.is_downloading():
+            dm.cancel_download()
         logger.info("用户请求退出")
         self._tray.hide()
         QApplication.instance().quit()

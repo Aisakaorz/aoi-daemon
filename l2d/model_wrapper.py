@@ -140,13 +140,8 @@ class Live2DModelWrapper:
             return
         try:
             # MotionPriority 枚举值：NONE=0, IDLE=1, NORMAL=2, FORCE=3
-            mp = MotionPriority.NORMAL
-            if priority >= 30:
+            if priority >= 20:
                 mp = MotionPriority.FORCE
-            elif priority >= 20:
-                mp = MotionPriority.FORCE
-            elif priority >= 15:
-                mp = MotionPriority.NORMAL
             elif priority >= 10:
                 mp = MotionPriority.NORMAL
             else:

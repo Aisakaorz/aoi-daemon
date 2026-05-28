@@ -16,6 +16,7 @@
 - [✔] FR-LE-001: Cubism 2.x 模型加载（resources/model/live2d-widget-model-haru/haru02.model.json）
 - [✔] FR-LE-002: 60 FPS 渲染循环（QOpenGLWidget + QTimer）
 - [✔] FR-LE-003: 视线跟踪（ParamEyeBallX / ParamEyeBallY）
+- [✔] FR-LE-003: 全局视线跟踪（鼠标离开窗口后角色仍看向鼠标方向，QCursor 全局定时器驱动）
 - [✔] FR-LE-003: 呼吸动画（ParamBreath / ParamBodyAngleX/Y/Z，正弦波驱动）
 - [✔] FR-LE-004: 点击反馈（Head→flickHead / Body→tapBody，随机选择，附带 snd/ 音效）
 - [✔] FR-LE-005: 动作状态机（Idle/Greeting/Thinking/TapHead/TapBody，优先级管理，Idle 5~8s 轮播）
@@ -25,7 +26,7 @@
 #### 聊天系统
 - [✔] FR-CH-001: 自定义气泡组件（QPainter 自绘圆角渐变背景 + 手动字符级换行 + 文本垂直居中）
 - [✔] FR-CH-001: 用户消息右对齐蓝色气泡，AI 消息左对齐粉色气泡
-- [✔] FR-CH-001: 顶部高度渐变淡出（消息超出面板后随高度平方曲线淡出，完全推出后自动删除）
+- [✔] FR-CH-001: 顶部高度渐变淡出（消息超出面板后随高度平方曲线淡出，底部 mask 硬截断保留消息）
 - [✔] FR-CH-001: 手动布局（禁用 QVBoxLayout 自动布局，固定 spacing=4px，根治压缩/重叠）
 - [✔] FR-CH-002: 文本输入（Enter 发送，placeholder「跟葵酱说点什么吧~ ✨」）
 - [✔] FR-CH-001: 打字指示器（三个跳动圆点波浪动画）
@@ -66,11 +67,13 @@
 - [✔] FR-CH-002: `grabMouse()` 捕获鼠标，移出窗口松开也能正常停止录音
 - [✔] FR-CH-002: 15 秒自动停止后备（防止 grabMouse 失效等极端情况）
 - [✔] FR-CH-002: 录音时长过短（<300ms）或单击时，显示葵酱提示气泡
+- [✔] FR-CH-002: 录音时语音按钮实时音量可视化（从下到上填充红色音量条）
 - [✔] FR-CH-002: faster-whisper tiny 模型本地转录，临时 WAV 自动清理
 - [✔] FR-CH-002: 转录结果直接填入输入框（覆盖式，不清空已有内容，因为录音前已清空）
-- [✔] FR-CH-003: 首次使用 STT 时检测本地模型，无模型则弹出下载对话框（确认+进度条+取消）
-- [✔] FR-CH-003: 下载支持取消（terminate 线程并清空已下载内容）
+- [✔] FR-CH-003: 首次使用 STT 时检测本地模型，无模型则提示去菜单栏下载
+- [✔] FR-CH-003: 下载支持取消（协作式取消：HFProgressBar._cancelled 标志位 + RuntimeError 异常）
 - [✔] FR-CH-003: 下载失败友好提示（网络超时、连接失败等）
+- [✔] FR-CH-002: STT 初始化失败静默降级（捕获异常，语音按钮失效但不崩溃）
 - [✔] FR-CH-002: 输入框圆角 10px，focus 状态 2px 高亮边框 + 外发光
 - [✔] FR-CH-002: 输入框 galgame 风格（暖白底 rgba(255,250,245) + 珊瑚粉边框 + #4A3F3A 字体）
 - [✔] 安装依赖：faster-whisper、sounddevice
@@ -103,6 +106,35 @@
 - [✔] FR-LE-005: 非 IDLE 状态时（Thinking/Tap/Talking 等）不打断，保持当前动作，不触发随机动作
 - [✔] FR-LE-005: Live2DCanvas 渲染循环中调用 state_machine.update(delta_time)
 - [✔] FR-LE-005: 状态机 update() 中每 5~8 秒随机触发 _notify(IDLE)，经优先级映射后走 MotionPriority.IDLE
+
+---
+
+### v0.1.5 —— 语音模型下载入口重构
+- [✔] FR-CH-002: 长按语音按钮且模型未下载时，不弹窗，改为气泡提示「请去菜单栏下载语音转文字模型」
+- [✔] FR-CH-002: 长按语音按钮且模型下载中时，气泡提示「当前模型下载中，请稍候再试」
+- [✔] FR-WS-002: 菜单栏「角色大小」下方新增「语音转文字模型」子菜单
+- [✔] FR-WS-002: 子菜单显示模型名称（如 Whisper Tiny），已下载显示勾选，单击直接切换
+- [✔] FR-WS-002: 未下载模型单击直接开始下载，弹出气泡提示「开始下载语音模型啦」
+- [✔] FR-CH-003: 下载进度常驻在输入框位置（替换输入框，显示 ⏳ 图标 + 进度详情）
+- [✔] FR-CH-003: 输入框位置进度条实时显示已下载/总大小/当前速度
+- [✔] FR-CH-003: 点击 ⏳ 图标取消下载，悬停显示 ❌
+- [✔] FR-CH-003: 下载完成/失败/取消均通过气泡消息 + 托盘通知反馈
+- [✔] FR-CH-003: 下载完成自动设为当前模型（如果之前无已选模型）
+- [✔] FR-WS-002: 菜单打开时自动检测模型完整性（模型文件被删除后自动取消勾选）
+- [✔] FR-WS-003: 后台下载期间托盘 tooltip 实时显示进度（百分比、速度）
+- [✔] FR-WS-003: 下载完成/失败时托盘气泡通知
+- [✔] voice/model_manager.py: 模型注册表 + DownloadManager（全局单例，支持后台下载和取消）
+- [✔] FR-CH-001: 手动滚轮滚动浏览历史消息（wheelEvent 调整 _scroll_offset）
+- [✔] FR-CH-001: 跳到底部按钮（▼，24×20，滚动到上方历史时显示，点击重置 scroll_offset）
+- [✔] FR-CH-001: 跳到底部按钮添加描边边框（珊瑚粉 1.5px，与输入框 focus 边框一致）
+- [✔] FR-CH-001: LayoutRequest 拦截（event() 覆盖，防止 Qt 自动压缩 spacing）
+- [✔] FR-CH-001: 输入框 z-order 保证（add_message / show_typing_indicator 中调用 raise_()）
+- [✔] FR-CH-001: 顶部透明化规则重构（动态 fade_zone：从 0 增长到 150px，基于 max_available_h - _FADE_ZONE 的固定 threshold）
+- [✔] FR-CH-001: 底部 mask 硬截断（clip_y = panel_height - input_height + 5px，不再用 opacity 截断）
+- [✔] FR-CH-001: 滚动边界扩展（max_offset = total_h，最旧消息可完全滚入视图）
+- [✔] FR-CH-001: 滚轮方向修复（delta > 0 增加 offset 查看旧历史）
+- [✔] FR-CH-001: 聊天面板打开时自动聚焦输入框（showEvent 中调用 setFocus）
+- [✔] FR-CH-003: 下载进度渐变背景（从左到右珊瑚粉渐变填充进度条，与输入框 focus 边框风格统一）
 
 ---
 
@@ -154,7 +186,9 @@
 - [✔] QGraphicsOpacityEffect + border-radius 不兼容 → 改用 QPainter 自绘
 - [✔] QBoxLayout 空间不足时压缩 spacing → 改用禁用自动布局 + 手动计算 y
 - [✔] widget 首次显示前 height() 返回 0 → 使用 _layout_height 属性存储
-- [✔] faster-whisper 首次下载模型无进度提示 → 已实现 ModelDownloadDialog 带进度条
+- [✔] faster-whisper 首次下载模型无进度提示 → 已实现输入框位置常驻下载进度条
+- [✔] 底部消息截断：从 opacity 淡出改为 mask 硬裁剪（QRegion + setMask）
+- [✔] 顶部 fade_zone 动态化：固定 threshold + 增长的 fade_zone，替代固定 150px 方案
 - [ ] 透明窗口鼠标事件兼容性（Windows/macOS 差异待验证）
 - [ ] macOS 麦克风/辅助功能权限处理（STT 阶段需要）
 - [ ] edge-tts 异步生成器在同步代码中的封装方式待统一

@@ -3,6 +3,7 @@
 语音转文字封装
 基于 faster-whisper 本地推理 + sounddevice 录音
 """
+import atexit
 import os
 import tempfile
 import wave
@@ -16,13 +17,18 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# 本地模型存放路径（相对项目根目录）
-MODEL_LOCAL_DIR = os.path.abspath(os.path.join("resources", "whisper", "tiny"))
+# 固定临时文件路径，每次覆盖，程序退出时统一清理
+_STT_TMP_PATH = os.path.join(tempfile.gettempdir(), "aoi_stt.wav")
 
 
-def is_model_available() -> bool:
-    """检查本地 faster-whisper tiny 模型是否已下载"""
-    return os.path.exists(os.path.join(MODEL_LOCAL_DIR, "model.bin"))
+def _cleanup_stt_tmp() -> None:
+    try:
+        os.unlink(_STT_TMP_PATH)
+    except OSError:
+        pass
+
+
+atexit.register(_cleanup_stt_tmp)
 
 
 class AudioRecorder:
@@ -32,9 +38,11 @@ class AudioRecorder:
         self.samplerate = samplerate
         self._chunks: list = []
         self._stream: Optional[sd.InputStream] = None
+        self._volume = 0.0  # 0.0 ~ 1.0，实时音量
 
     def start(self) -> None:
         self._chunks = []
+        self._volume = 0.0
         self._stream = sd.InputStream(
             samplerate=self.samplerate,
             channels=1,
@@ -44,8 +52,18 @@ class AudioRecorder:
         self._stream.start()
         logger.info("录音开始")
 
+    def get_volume(self) -> float:
+        return self._volume
+
     def _callback(self, indata, frames, time_info, status) -> None:
         self._chunks.append(indata.copy())
+        # 计算 RMS 音量并归一化到 0~1
+        float_data = indata.astype(np.float64)
+        rms = np.sqrt(np.mean(float_data ** 2))
+        # 典型语音 rms 约 300~3000，放大低音量以提高可视性
+        raw = min(rms / 2500.0, 1.0)
+        # 平滑处理 + 录音期间保持最低可见高度
+        self._volume = max(self._volume * 0.6 + raw * 0.4, 0.08)
 
     def stop(self) -> Optional[np.ndarray]:
         if self._stream:
@@ -92,25 +110,32 @@ class TranscribeRunnable(QRunnable):
 class STTProvider:
     """faster-whisper 封装，延迟加载模型"""
 
-    def __init__(self, model_size: str = "tiny"):
+    def __init__(self, model_size: str | None = None):
+        # model_size 参数保留兼容，实际从 model_manager 获取当前模型
         self._model_size = model_size
         self._model = None
         self._recorder = AudioRecorder()
 
     def _load_model(self) -> None:
-        if self._model is None:
-            from faster_whisper import WhisperModel
-            if is_model_available():
-                logger.info(f"从本地加载 faster-whisper 模型: {MODEL_LOCAL_DIR}")
-                model_path = MODEL_LOCAL_DIR
-            else:
-                logger.info(f"加载 faster-whisper 模型（将自动下载）: {self._model_size}")
-                model_path = self._model_size
-            self._model = WhisperModel(
-                model_path,
-                device="cpu",
-                compute_type="int8",
-            )
+        if self._model is not None:
+            return
+        from faster_whisper import WhisperModel
+        from voice.model_manager import get_current_model_id, get_model_local_dir, is_model_downloaded
+
+        model_id = get_current_model_id()
+        if not is_model_downloaded(model_id):
+            raise RuntimeError(f"模型 {model_id} 未下载")
+        local_dir = get_model_local_dir(model_id)
+        logger.info(f"从本地加载 faster-whisper 模型: {local_dir}")
+        self._model = WhisperModel(
+            local_dir,
+            device="cpu",
+            compute_type="int8",
+        )
+
+    def get_volume(self) -> float:
+        """获取当前录音音量（0.0 ~ 1.0）"""
+        return self._recorder.get_volume()
 
     def start_recording(self) -> None:
         # 如果之前有未停止的录音，先清理（防止重复 start 导致资源泄漏）
@@ -124,11 +149,10 @@ class STTProvider:
             on_finished("")
             return
 
-        tmp_path = os.path.join(tempfile.gettempdir(), "aoi_stt.wav")
-        self._recorder.save_wav(data, tmp_path)
+        self._recorder.save_wav(data, _STT_TMP_PATH)
 
         self._load_model()
-        worker = TranscribeRunnable(self, tmp_path)
+        worker = TranscribeRunnable(self, _STT_TMP_PATH)
         worker.signals.finished.connect(on_finished)
         QThreadPool.globalInstance().start(worker)
 

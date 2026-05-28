@@ -57,6 +57,19 @@ class TrayIcon(QObject):
         """设置托盘右键菜单（由 MainWindow 统一构建）"""
         self._tray.setContextMenu(menu)
 
+    def update_tooltip(self, text: str | None = None) -> None:
+        """更新托盘图标提示文本"""
+        if text:
+            self._tray.setToolTip(text)
+        else:
+            self._tray.setToolTip("葵之使魔 ~AoiDaemon~")
+
+    def show_message(self, title: str, message: str,
+                     icon=QSystemTrayIcon.MessageIcon.Information,
+                     msecs: int = 3000) -> None:
+        """显示托盘气泡通知"""
+        self._tray.showMessage(title, message, icon, msecs)
+
     def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         """
         托盘图标被激活时的回调
