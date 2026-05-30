@@ -4,6 +4,8 @@ live2d 包：Live2D 模型封装与渲染辅助
 
 注意：由于第三方库 live2d-py 的包名也是 live2d，为避免命名冲突，
 本项目将本地 Live2D 相关业务代码放在 l2d/ 目录下。
+
+live2d-py v2 是纯 Python 实现，不需要额外放置 Core 动态库（Core.dll / libCore.dylib）。
 """
 import sys
 import os
@@ -14,7 +16,8 @@ _paths_to_remove = [_project_root, os.path.abspath(_project_root), '', '.']
 _original_path = sys.path.copy()
 sys.path = [p for p in sys.path if p not in _paths_to_remove and os.path.abspath(p) != _project_root]
 
-# 优先导入纯 Python 的 v2（渲染兼容性更好，无 texture seam 线条问题）
+# live2d-py v2 是纯 Python 实现，不需要 Core 动态库。
+# 如果 v2 导入失败，尝试 fallback 到 v2cpp（C++ 扩展，需要 Core.dll/libCore.dylib）。
 live2d_v2 = None
 LAppModel = None
 MotionPriority = None

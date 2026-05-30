@@ -50,29 +50,6 @@ class AoiDaemonApp:
             os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
             logger.info("Windows 平台：启用高 DPI 缩放")
 
-    def _check_core_lib(self) -> bool:
-        """
-        检查 Live2D Core 动态库是否存在
-        :return: 是否存在
-        """
-        if sys.platform == "darwin":
-            lib_path = "lib/libCore.dylib"
-        elif sys.platform == "win32":
-            lib_path = "lib/Core.dll"
-        else:
-            logger.warning(f"未知平台 {sys.platform}，尝试使用默认库路径")
-            lib_path = "lib/Core.dll"
-
-        if not os.path.exists(lib_path):
-            logger.error(
-                f"Live2D Core 库未找到: {os.path.abspath(lib_path)}\n"
-                f"请从 Live2D 官网下载 Cubism SDK for Native，"
-                f"放置对应平台的 Core 动态库到 lib/ 目录。"
-            )
-            return False
-        logger.info(f"Live2D Core 库已找到: {lib_path}")
-        return True
-
     def run(self) -> int:
         """
         启动应用主循环
@@ -88,12 +65,7 @@ class AoiDaemonApp:
             self._app.setApplicationName("葵之使魔")
             self._app.setApplicationDisplayName("AoiDaemon")
 
-            # 3. 检查 Core 库
-            if not self._check_core_lib():
-                # 库缺失时仍继续运行，但模型无法加载，窗口会显示占位
-                logger.warning("Core 库缺失，将以降级模式运行（无 Live2D 模型）")
-
-            # 4. 初始化核心模块
+            # 3. 初始化核心模块
             self._model = Live2DModelWrapper()
             self._state = StateMachine()
 

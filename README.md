@@ -60,17 +60,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. 配置 Live2D Core 库
-
-Live2D Core 动态库**不随仓库分发**，需手动下载：
-
-1. 访问 [Live2D Cubism SDK for Native](https://www.live2d.com/sdk/download/native/)
-2. 下载对应平台的 Core 库
-3. 放置到 `lib/` 目录：
-   - **Windows**: `lib/Core.dll`
-   - **macOS**: `lib/libCore.dylib`
-
-### 5. 配置 Live2D 模型（必需）
+### 4. 配置 Live2D 模型（必需）
 
 **本仓库不提供模型文件**，需自行下载后放置到 `resources/model/` 目录。
 
@@ -126,7 +116,7 @@ resources/model/live2d-widget-model-haru/
 
 > ⚠️ 请确保模型文件路径与 `l2d/model_wrapper.py` 中的 `model_path` 一致。
 
-### 6. 配置语音转文字模型（可选）
+### 5. 配置语音转文字模型（可选）
 
 语音转文字功能基于 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) tiny 模型（约 75MB）。
 
@@ -193,9 +183,6 @@ aoi-daemon/
 │   └── stt_provider.py         # STT 封装：录音 + faster-whisper 转录
 ├── utils/
 │   └── logger.py               # 统一日志
-├── lib/
-│   ├── Core.dll                # Windows Live2D Core（需自行下载）
-│   └── libCore.dylib           # macOS Live2D Core（需自行下载）
 └── resources/
     ├── icons/                  # 应用图标
     ├── model/                  # Live2D 模型文件（需自行放置，见上文）

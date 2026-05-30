@@ -182,7 +182,7 @@
 
 ## 技术债务
 
-- [✔] live2d-py Core 库需手动配置（lib/Core.dll、libCore.dylib）
+- [✔] live2d-py v2 为纯 Python 实现，不需要 Core 动态库
 - [✔] QGraphicsOpacityEffect + border-radius 不兼容 → 改用 QPainter 自绘
 - [✔] QBoxLayout 空间不足时压缩 spacing → 改用禁用自动布局 + 手动计算 y
 - [✔] widget 首次显示前 height() 返回 0 → 使用 _layout_height 属性存储

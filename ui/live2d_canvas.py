@@ -105,7 +105,7 @@ class Live2DCanvas(QOpenGLWidget):
             return
 
         if not self._model.load(model_path):
-            logger.error("模型加载失败，请检查模型文件与 Core 库版本是否匹配")
+            logger.error("模型加载失败，请检查模型文件是否完整")
             return
 
         # 关闭内置自动呼吸，由应用层完全控制

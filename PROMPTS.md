@@ -11,7 +11,6 @@
 
 当前环境：
 - 空项目，已创建目录结构
-- lib/ 目录已放置对应平台的 Live2D Core 库（Windows: Core.dll / macOS: libCore.dylib）
 - resources/model/ 下已放置 Live2D 模型文件（haru02.model.json 为入口）
 - 使用 Python 3.10+ 虚拟环境
 - 目标平台：Windows + macOS
@@ -35,7 +34,7 @@
 - 模型入口文件路径：resources/model/live2d-widget-model-haru/haru02.model.json
 - 可用动作文件在 mtn/ 目录下：idle_00.mtn~idle_02.mtn、flickHead_00.mtn、tapBody_00.mtn~tapBody_09.mtn、pinchIn_00.mtn、pinchOut_00.mtn、shake_00.mtn
 - 点击音效在 snd/ 目录下，可选播放
-- 根据 sys.platform 自动选择 Live2D Core 库路径（lib/Core.dll 或 lib/libCore.dylib）
+- live2d-py v2 为纯 Python 实现，不需要额外放置 Core 动态库
 - 默认使用 haru 模型作为演示角色（葵酱），模型入口 haru02.model.json
 - glewInit() 必须在 QOpenGLWidget.initializeGL() 中调用
 - 透明窗口需处理鼠标事件穿透问题（参考 PRD 第 6 节踩坑提示）

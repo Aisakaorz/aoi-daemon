@@ -7,8 +7,7 @@ v0.1：透明置顶窗口 + Live2D 渲染 + 视线跟踪 + 呼吸动画 + 聊天
 
 运行前请确保：
 1. 已安装依赖: pip install -r requirements.txt
-2. lib/ 目录下已放置对应平台的 Live2D Core 库
-3. resources/model/ 下已有 haru 模型文件
+2. resources/model/ 下已有 haru 模型文件
 
 使用方法:
     python main.py

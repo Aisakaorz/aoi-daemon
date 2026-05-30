@@ -215,9 +215,6 @@ AoiDaemon/
 ├── utils/
 │   ├── __init__.py
 │   └── logger.py
-├── lib/
-│   ├── Core.dll            # Windows（需自行下载）
-│   └── libCore.dylib       # macOS（需自行下载）
 └── resources/
     ├── icons/              # 应用图标
     ├── model/              # Live2D 模型（用户自备，见 README）
@@ -354,23 +351,21 @@ class Live2DModelWrapper:
 
 ## 6. 踩坑提示
 
-1. **live2d-py Core 库**：不含 Core 动态库，需手动从 Live2D 官网下载 Cubism SDK for Native，放置 lib/Core.dll（Windows）或 lib/libCore.dylib（macOS）。缺失时报 FileNotFoundError 或 OSError。
-2. **v2 vs v2cpp**：必须使用 `live2d.v2`（纯 Python），`live2d.v2cpp` 会抛出 `NullFunctionError: glGenFramebuffers`。
-3. **MeshContext 导入 bug**：需在 `l2d/__init__.py` 中 monkey-patch `live2d.v2.core.alive2d_model` 的 MeshContext 导入。
-4. **OpenGL 上下文**：glewInit() 必须在 QOpenGLWidget.initializeGL() 中调用，__init__ 中提前调用会崩溃。
-5. **模型居中**：`Resize()` 会覆盖布局宽度为 2.0，导致模型左偏，需用 `SetOffset(0.45, 0.0)` 补偿。
-6. **纹理参数**：加载贴图后必须设置 `GL_TEXTURE_WRAP_S/T = GL_CLAMP_TO_EDGE` 和 `GL_TEXTURE_MIN/MAG_FILTER = GL_NEAREST`，否则出现接缝线。
-7. **FFmpeg stderr**：Qt 多媒体播放 MP3 时 C 库会写 stderr（fd 2）， bypass Python sys.stderr。需在 `main.py` 开头用 `os.dup2` 将 fd 2 重定向到 devnull，同时恢复 Python `sys.stderr` 绑定到原始 fd。
-8. **QGraphicsOpacityEffect 不兼容**：Qt6 中 `QGraphicsOpacityEffect` + `border-radius` 会导致动画期间变方。解决方案：用 `QPainter.setOpacity()` 在 QWidget 上自绘圆角矩形和文本。
-9. **QBoxLayout 压缩 spacing**：`QVBoxLayout` 空间不足时会优先压缩 `spacing` 导致气泡重叠。解决方案：保留 `QVBoxLayout` 作为容器（启用状态确保气泡可见），但用 `setGeometry` 手动覆盖每条消息的 y 坐标，并拦截 `LayoutRequest` 事件立即重布局。
-10. **widget 首次显示前 height() 返回 0**：手动布局时 `w.height()` 在 widget 首次显示前可能返回 0。解决方案：创建 widget 时存储 `_layout_height` 属性，所有布局计算使用该属性值。
-11. **faster-whisper 模型下载**：通过菜单栏「语音转文字模型」选择并下载，支持后台下载，托盘实时显示进度。也可手动放置到 `resources/whisper/tiny/`。
-12. **grabMouse 与模态对话框冲突**：`_VoiceButton` 长按录音时调用 `grabMouse()`，若此时弹出模态下载对话框，需在弹窗前调用 `releaseMouse()` 或 `reset_style()` 释放捕获，否则对话框可能无法交互。
-13. **角色底部比例需视觉微调**：Live2D 模型在窗口内的实际视觉底部无法通过代码精确计算（hit test 区域 ≠ 视觉边界），需运行后目视微调 `_CHARACTER_BOTTOM_RATIO`。haru 模型经实际微调后约为 0.955。
-14. **任务栏高度差异**：不同屏幕/DPI 下任务栏高度不同（40px ~ 75px），吸附阈值应使用任务栏高度的一半动态计算，避免固定阈值在某些屏幕上过大或过小。
-15. **顶部透明化区域动态增长**：固定 fade_zone = 150px 会导致面板较矮时过早淡出。解决方案：使用固定 threshold = max_available_h - _FADE_ZONE，fade_zone = min(total_msg_h - threshold, _FADE_ZONE)，从 0 逐渐增长到 150px。
-16. **底部截断不要用 opacity**：用 `opacity = 0` 截断底部消息会导致气泡物理区域仍覆盖输入框（鼠标事件被拦截）。解决方案：使用 `QRegion` + `setMask()` 硬裁剪，同时配合 `raise_()` 确保输入框在气泡之上。
-17. **输入框 z-order 管理**：新消息加入时 Qt 可能将其置于输入框之上。解决方案：在 `add_message()` 和 `show_typing_indicator()` 中调用 `self._input_frame.raise_()`。
-18. **API Key 安全**：不要硬编码，使用环境变量或本地加密配置文件。开源前检查 .gitignore 排除 config.yaml 和 .env。
-19. **Live2D 模型版权**：开源仓库不放完整模型。本项目演示使用的 haru 模型来源于 hexo-helper-live2d 项目，版权归属 Live2D Inc.。README 需注明模型文件需用户自行提供。
-20. **macOS 权限**：首次运行可能需授予麦克风权限（STT）和辅助功能权限（开机自启）。
+1. **MeshContext 导入 bug**：需在 `l2d/__init__.py` 中 monkey-patch `live2d.v2.core.alive2d_model` 的 MeshContext 导入。
+2. **OpenGL 上下文**：glewInit() 必须在 QOpenGLWidget.initializeGL() 中调用，__init__ 中提前调用会崩溃。
+3. **模型居中**：`Resize()` 会覆盖布局宽度为 2.0，导致模型左偏，需用 `SetOffset(0.45, 0.0)` 补偿。
+4. **纹理参数**：加载贴图后必须设置 `GL_TEXTURE_WRAP_S/T = GL_CLAMP_TO_EDGE` 和 `GL_TEXTURE_MIN/MAG_FILTER = GL_NEAREST`，否则出现接缝线。
+5. **FFmpeg stderr**：Qt 多媒体播放 MP3 时 C 库会写 stderr（fd 2）， bypass Python sys.stderr。需在 `main.py` 开头用 `os.dup2` 将 fd 2 重定向到 devnull，同时恢复 Python `sys.stderr` 绑定到原始 fd。
+6. **QGraphicsOpacityEffect 不兼容**：Qt6 中 `QGraphicsOpacityEffect` + `border-radius` 会导致动画期间变方。解决方案：用 `QPainter.setOpacity()` 在 QWidget 上自绘圆角矩形和文本。
+7. **QBoxLayout 压缩 spacing**：`QVBoxLayout` 空间不足时会优先压缩 `spacing` 导致气泡重叠。解决方案：保留 `QVBoxLayout` 作为容器（启用状态确保气泡可见），但用 `setGeometry` 手动覆盖每条消息的 y 坐标，并拦截 `LayoutRequest` 事件立即重布局。
+8. **widget 首次显示前 height() 返回 0**：手动布局时 `w.height()` 在 widget 首次显示前可能返回 0。解决方案：创建 widget 时存储 `_layout_height` 属性，所有布局计算使用该属性值。
+9. **faster-whisper 模型下载**：通过菜单栏「语音转文字模型」选择并下载，支持后台下载，托盘实时显示进度。也可手动放置到 `resources/whisper/tiny/`。
+10. **grabMouse 与模态对话框冲突**：`_VoiceButton` 长按录音时调用 `grabMouse()`，若此时弹出模态下载对话框，需在弹窗前调用 `releaseMouse()` 或 `reset_style()` 释放捕获，否则对话框可能无法交互。
+11. **角色底部比例需视觉微调**：Live2D 模型在窗口内的实际视觉底部无法通过代码精确计算（hit test 区域 ≠ 视觉边界），需运行后目视微调 `_CHARACTER_BOTTOM_RATIO`。haru 模型经实际微调后约为 0.955。
+12. **任务栏高度差异**：不同屏幕/DPI 下任务栏高度不同（40px ~ 75px），吸附阈值应使用任务栏高度的一半动态计算，避免固定阈值在某些屏幕上过大或过小。
+13. **顶部透明化区域动态增长**：固定 fade_zone = 150px 会导致面板较矮时过早淡出。解决方案：使用固定 threshold = max_available_h - _FADE_ZONE，fade_zone = min(total_msg_h - threshold, _FADE_ZONE)，从 0 逐渐增长到 150px。
+14. **底部截断不要用 opacity**：用 `opacity = 0` 截断底部消息会导致气泡物理区域仍覆盖输入框（鼠标事件被拦截）。解决方案：使用 `QRegion` + `setMask()` 硬裁剪，同时配合 `raise_()` 确保输入框在气泡之上。
+15. **输入框 z-order 管理**：新消息加入时 Qt 可能将其置于输入框之上。解决方案：在 `add_message()` 和 `show_typing_indicator()` 中调用 `self._input_frame.raise_()`。
+16. **API Key 安全**：不要硬编码，使用环境变量或本地加密配置文件。开源前检查 .gitignore 排除 config.yaml 和 .env。
+17. **Live2D 模型版权**：开源仓库不放完整模型。本项目演示使用的 haru 模型来源于 hexo-helper-live2d 项目，版权归属 Live2D Inc.。README 需注明模型文件需用户自行提供。
+18. **macOS 权限**：首次运行可能需授予麦克风权限（STT）和辅助功能权限（开机自启）。
