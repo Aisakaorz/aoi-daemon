@@ -138,6 +138,21 @@
 
 ---
 
+### v0.1.7 —— 模型库缺失时的优雅降级 + 启动加载画面
+- [✔] 启动前置检查：resources/model/ 下是否存在 .model.json 文件
+- [✔] 缺失时弹出 QMessageBox（标题「资源文件缺失」，提示按 README 配置）
+- [✔] 点击确定后优雅退出（return 0），不进入 Live2D 渲染
+- [✔] 保持代码结构整洁（_has_model_files / _show_missing_model_dialog 两个独立函数）
+- [✔] 延迟导入 Qt，确保 stderr 重定向等环境准备已就绪
+- [✔] 启动画面（SplashScreen）：Live2D 模型加载期间显示，避免空白窗口
+- [✔] 启动画面包含应用图标 + 标题 + 加载文案 + 确定进度条（0~100，分阶段反馈真实加载进度）
+- [✔] Live2DCanvas.model_ready 信号：initializeGL 完成后通知 MainWindow 关闭启动画面
+- [✔] 启动画面圆角窗口居中显示、无边框、置顶、珊瑚粉主题配色
+- [✔] 进度条 ease-out 平滑动画（set_progress 设目标值，QTimer 60fps 插值，step = max(1, |diff| * 0.2)）
+- [✔] 下载进度条同步增加平滑动画（_animate_download_progress，与启动画面共用同一套 ease-out 插值逻辑）
+
+---
+
 ### v0.2 —— 接入真实 AI
 - [ ] FR-AI-001: 实现真实 HTTP POST（requests，30s 超时）
 - [ ] FR-AI-001: 解析 choices[0].message.content

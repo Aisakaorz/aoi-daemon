@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt
 from l2d.model_wrapper import Live2DModelWrapper
 from core.state_machine import StateMachine
 from ui.main_window import MainWindow
+from ui.splash_screen import SplashScreen
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -65,12 +66,17 @@ class AoiDaemonApp:
             self._app.setApplicationName("葵之使魔")
             self._app.setApplicationDisplayName("AoiDaemon")
 
+            # 显示启动画面（在模型加载完成前提供视觉反馈）
+            splash = SplashScreen()
+            splash.show()
+            self._app.processEvents()
+
             # 3. 初始化核心模块
             self._model = Live2DModelWrapper()
             self._state = StateMachine()
 
-            # 5. 创建主窗口
-            self._window = MainWindow(self._model, self._state)
+            # 5. 创建主窗口（传入启动画面，模型加载完成后自动关闭）
+            self._window = MainWindow(self._model, self._state, splash_screen=splash)
             self._window.show()
 
             logger.info("葵之使魔启动成功，进入主事件循环")

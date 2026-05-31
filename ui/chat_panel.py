@@ -160,6 +160,10 @@ class ChatPanel(QWidget):
         self._setup_ui()
         self._setup_download_tracking()
         self._message_widgets: list[QWidget] = []
+        # 下载进度平滑动画
+        self._download_target_pct = 0
+        self._download_timer = QTimer(self)
+        self._download_timer.timeout.connect(self._animate_download_progress)
         self.setVisible(False)
         # 面板最大高度占父窗口高度的比例（随角色大小同步缩放）
         self._max_height_ratio = 0.65
@@ -860,10 +864,25 @@ class ChatPanel(QWidget):
             }}
         """)
 
+    def _animate_download_progress(self) -> None:
+        """ease-out 插值动画，让下载进度条连续平滑变化"""
+        current = getattr(self, '_download_current_pct', 0)
+        diff = self._download_target_pct - current
+        if abs(diff) <= 1:
+            self._download_current_pct = self._download_target_pct
+            self._update_download_style(self._download_target_pct)
+            self._download_timer.stop()
+            return
+        step = max(1, int(abs(diff) * 0.2))
+        self._download_current_pct = current + (step if diff > 0 else -step)
+        self._update_download_style(self._download_current_pct)
+
     def _on_download_progress(self, model_id, pct, downloaded, total, speed):
-        """更新下载进度显示"""
+        """更新下载进度显示（目标值由定时器平滑插值到实际显示）"""
         from voice.model_manager import _fmt_bytes
-        self._update_download_style(pct)
+        self._download_target_pct = pct
+        if not self._download_timer.isActive():
+            self._download_timer.start(16)  # ~60fps
         detail = f"{_fmt_bytes(downloaded)} / {_fmt_bytes(total)}"
         if speed:
             detail += f"  {speed}"

@@ -10,7 +10,7 @@ import random
 from typing import Optional, Callable
 
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
-from PySide6.QtCore import Qt, QTimer, QPoint
+from PySide6.QtCore import Qt, QTimer, QPoint, Signal
 from PySide6.QtGui import QMouseEvent
 
 from l2d.model_wrapper import Live2DModelWrapper
@@ -29,6 +29,11 @@ class Live2DCanvas(QOpenGLWidget):
     - 呼吸动画（正弦波驱动 ParamBreath + ParamBodyAngleX/Y）
     - 点击检测（Head / Body）
     """
+
+    # 模型初始化完成信号（用于关闭启动画面）
+    model_ready = Signal()
+    # 加载进度信号（0~100，用于更新启动画面进度条）
+    loading_progress = Signal(int)
 
     def __init__(
         self,
@@ -88,13 +93,21 @@ class Live2DCanvas(QOpenGLWidget):
         OpenGL 初始化
         注意：glewInit() 必须在此方法中调用，不可提前
         """
+        self.loading_progress.emit(10)
+
         try:
             if not self._model.init_core():
                 logger.error("Live2D Core 初始化失败，模型将无法渲染")
+                self.loading_progress.emit(100)
+                self.model_ready.emit()
                 return
         except Exception as e:
             logger.error(f"initializeGL 异常: {e}")
+            self.loading_progress.emit(100)
+            self.model_ready.emit()
             return
+
+        self.loading_progress.emit(35)
 
         # 加载模型
         model_path = os.path.abspath(
@@ -102,11 +115,19 @@ class Live2DCanvas(QOpenGLWidget):
         )
         if not os.path.exists(model_path):
             logger.error(f"模型文件不存在: {model_path}")
+            self.loading_progress.emit(100)
+            self.model_ready.emit()
             return
+
+        self.loading_progress.emit(45)
 
         if not self._model.load(model_path):
             logger.error("模型加载失败，请检查模型文件是否完整")
+            self.loading_progress.emit(100)
+            self.model_ready.emit()
             return
+
+        self.loading_progress.emit(75)
 
         # 关闭内置自动呼吸，由应用层完全控制
         self._model._model.SetAutoBreathEnable(False)
@@ -116,6 +137,8 @@ class Live2DCanvas(QOpenGLWidget):
         # 把绘制宽度覆写为 2.0，导致 translateX=-1.45 的偏移让模型偏左约 0.45。
         # 手动补偿 offset 让模型水平居中。
         self._model._model.SetOffset(0.45, 0.0)
+
+        self.loading_progress.emit(85)
 
         # 设置纹理参数：CLAMP_TO_EDGE 消除 texture seam 浅线
         try:
@@ -133,9 +156,12 @@ class Live2DCanvas(QOpenGLWidget):
         except Exception as e:
             logger.debug(f"纹理参数设置失败: {e}")
 
+        self.loading_progress.emit(100)
+
         # 启动时不自动播放动作，保持 IDLE，等待用户交互
 
         logger.info("Live2DCanvas OpenGL 初始化完成")
+        self.model_ready.emit()
 
     def paintGL(self) -> None:
         """

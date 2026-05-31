@@ -57,11 +57,13 @@ class MainWindow(QMainWindow):
         self,
         model_wrapper: Live2DModelWrapper,
         state_machine: StateMachine,
+        splash_screen=None,
         parent=None
     ):
         super().__init__(parent)
         self._model = model_wrapper
         self._state = state_machine
+        self._splash = splash_screen
 
         self._setup_window()
         self._setup_central_widget()
@@ -108,6 +110,9 @@ class MainWindow(QMainWindow):
 
         # Live2D OpenGL 画布（占满整个窗口）
         self._canvas = Live2DCanvas(self._model, self._state, central)
+        self._canvas.model_ready.connect(self._on_model_ready)
+        if self._splash is not None:
+            self._canvas.loading_progress.connect(self._splash.set_progress)
         layout.addWidget(self._canvas, stretch=1)
 
         # 聊天面板（浮动叠加在画布上方，底部居中）
@@ -116,6 +121,13 @@ class MainWindow(QMainWindow):
         self._chat.geometry_changed.connect(self._move_chat_to_bottom)
         # 窗口 resize 时重新调整聊天面板位置
         self.resizeEvent = self._on_resize
+
+    def _on_model_ready(self) -> None:
+        """Live2D 模型初始化完成后关闭启动画面"""
+        if self._splash is not None:
+            logger.info("模型加载完成，关闭启动画面")
+            self._splash.close()
+            self._splash = None
 
     def _setup_tray(self) -> None:
         """初始化系统托盘"""

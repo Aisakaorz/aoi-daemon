@@ -199,6 +199,7 @@ AoiDaemon/
 │   ├── main_window.py      # 透明无边框置顶窗口/拖拽/缩放/菜单
 │   ├── live2d_canvas.py    # QOpenGLWidget + live2d-py 渲染
 │   ├── chat_panel.py       # 聊天气泡面板 + 输入框 + 语音按钮 + 下载进度
+│   ├── splash_screen.py    # 启动加载画面（模型加载期间显示，带进度反馈）
 │   ├── tray_icon.py        # 系统托盘
 │   └── __init__.py
 ├── l2d/                    # Live2D 业务封装（避免与第三方 live2d-py 包名冲突）
@@ -270,6 +271,19 @@ AoiDaemon/
 - 点击「后台下载」关闭弹窗，托盘 tooltip 实时显示下载进度
 - 下载完成/失败时托盘气泡通知
 - 后台下载期间长按语音按钮，气泡提示「当前模型下载中，请稍候再试」
+
+### v0.1.7 —— 启动加载画面 + 模型缺失优雅降级
+- 启动画面（SplashScreen）：Live2D 模型加载期间显示，避免用户面对空白窗口
+  - 珊瑚粉主题配色，圆角窗口（QBitmap + QPainterPath + setMask）
+  - 显示应用图标 + 「葵之使魔」标题 + 加载文案 + 确定进度条（0~100）
+  - Live2DCanvas 通过 `loading_progress` 信号分阶段反馈真实进度
+  - 进度条 ease-out 平滑插值动画（QTimer 60fps，step = max(1, |diff| * 0.2)）
+  - 下载进度条同步增加平滑动画，与启动画面共用同一套插值逻辑
+  - 模型加载完成后 `model_ready` 信号自动关闭启动画面
+- 模型缺失优雅降级：
+  - main.py 启动前置检查 `resources/model/**/*.model.json`
+  - 缺失时弹出 QMessageBox（标题「资源文件缺失」），提示按 README「配置 Live2D 模型」放置文件
+  - 点击确定后 `sys.exit(0)` 优雅退出，不进入 Live2D 渲染
 
 ### v0.2 —— 接入真实 AI
 - 接入 Kimi Claw API 真实 HTTP 请求（替换占位模式）

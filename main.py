@@ -12,6 +12,7 @@ v0.1：透明置顶窗口 + Live2D 渲染 + 视线跟踪 + 呼吸动画 + 聊天
 使用方法:
     python main.py
 """
+import glob
 import io
 import os
 import sys
@@ -38,8 +39,45 @@ os.environ["QT_LOGGING_RULES"] = "qt.multimedia.ffmpeg=false"
 from core.app import AoiDaemonApp
 
 
+# resources/model/ 的绝对路径（以本文件为基准）
+_MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "resources", "model")
+
+
+def _has_model_files() -> bool:
+    """检查 resources/model/ 下是否存在 .model.json 文件"""
+    pattern = os.path.join(_MODEL_DIR, "**", "*.model.json")
+    return len(glob.glob(pattern, recursive=True)) > 0
+
+
+def _show_missing_model_dialog() -> None:
+    """弹出模型缺失提示，点击确定后优雅退出"""
+    # 延迟导入 Qt，确保 stderr 重定向等环境准备已就绪
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    from PySide6.QtGui import QIcon
+
+    app = QApplication(sys.argv)
+    msg = QMessageBox()
+    msg.setIcon(QMessageBox.Icon.Warning)
+    msg.setWindowTitle("资源文件缺失")
+    msg.setText(
+        "未检测到 Live2D 模型文件，请按 README「配置 Live2D 模型」章节放置文件后重新启动。"
+    )
+    msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+
+    # 设置应用图标
+    icon_path = "resources/icons/app_icon.ico"
+    if os.path.exists(icon_path):
+        msg.setWindowIcon(QIcon(icon_path))
+
+    msg.exec()
+
+
 def main() -> int:
     """应用入口"""
+    if not _has_model_files():
+        _show_missing_model_dialog()
+        return 0
+
     app = AoiDaemonApp()
     return app.run()
 
