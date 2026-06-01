@@ -825,7 +825,7 @@ class ChatPanel(QWidget):
 
     def _on_transcribe_done(self, text: str) -> None:
         """转录完成回调（在主线程执行）"""
-        logger.info(f"_on_transcribe_done 被调用，text={'有内容' if text else '空'}")
+        logger.debug(f"_on_transcribe_done 被调用，text={'有内容' if text else '空'}")
         self.hide_typing_indicator()
         self._input.setPlaceholderText("跟葵酱说点什么吧~ ✨")
         if text:

@@ -169,6 +169,20 @@
 
 ---
 
+### v0.1.9 —— 日志分级支持
+- [✔] utils/logger.py 重写：环境变量 AOI_LOG_LEVEL 控制默认级别（默认 INFO）
+- [✔] 运行时 set_level() 遍历所有已创建 logger，即时生效
+- [✔] WARNING/ERROR 级别日志通过独立 FileHandler 写入 logs/aoi-error.log
+- [✔] 托盘右键菜单新增「日志级别」子菜单（DEBUG/INFO/WARNING/ERROR 单选）
+- [✔] 切换时调用 set_level() 实时生效，切换后打印 INFO 日志
+- [✔] set_level() 自动持久化 log_level 到 config.json
+- [✔] main.py 启动时读取并恢复上次设置的日志级别
+- [✔] 高频调试信息降级为 DEBUG（如 _on_transcribe_done 调用轨迹）
+- [✔] 用户操作记录保持 INFO，异常和错误保持 ERROR/WARNING
+- [✔] .gitignore: 添加 logs/ 目录，防止日志文件被提交
+
+---
+
 ### v0.2 —— 接入真实 AI
 - [ ] FR-AI-001: 实现真实 HTTP POST（requests，30s 超时）
 - [ ] FR-AI-001: 解析 choices[0].message.content

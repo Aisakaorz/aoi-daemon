@@ -15,6 +15,7 @@ from PySide6.QtCore import Qt, QPoint, QByteArray, QTimer
 from PySide6.QtGui import QMouseEvent
 
 from utils import config_manager as cfg
+from utils.logger import set_level, get_current_level_name
 
 from ui.live2d_canvas import Live2DCanvas
 from ui.chat_panel import ChatPanel
@@ -259,6 +260,20 @@ class MainWindow(QMainWindow):
         # ---- 语音转文字模型子菜单 ----
         self._stt_menu = self._build_stt_menu()
         self._menu.addMenu(self._stt_menu)
+
+        # ---- 日志级别子菜单 ----
+        log_menu = QMenu("日志级别", self)
+        self._log_group = QActionGroup(self)
+        self._log_group.setExclusive(True)
+        current_level = get_current_level_name()
+        for label in ["DEBUG", "INFO", "WARNING", "ERROR"]:
+            action = QAction(label, self, checkable=True)
+            action.setData(label)
+            action.setChecked(label == current_level)
+            action.triggered.connect(lambda checked, l=label: set_level(l))
+            self._log_group.addAction(action)
+            log_menu.addAction(action)
+        self._menu.addMenu(log_menu)
 
         self._menu.addSeparator()
 

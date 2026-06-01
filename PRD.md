@@ -303,6 +303,22 @@ AoiDaemon/
   - `showEvent()` 中窗口首次显示后再次 `move()` 确认位置，覆盖窗口管理器可能的默认定位
   - 无配置时 fallback 到默认行为（右下角、中号、置顶开启、吸附开启、聊天关闭）
 
+### v0.1.9 —— 日志分级支持
+- 重写 `utils/logger.py`：
+  - 控制台级别由环境变量 `AOI_LOG_LEVEL` 控制（默认 INFO）
+  - 运行时 `set_level()` 遍历所有已创建 logger，即时生效
+  - WARNING/ERROR 级别日志通过独立 `FileHandler` 写入 `logs/aoi-error.log`
+- 托盘右键菜单新增「日志级别」子菜单（DEBUG/INFO/WARNING/ERROR 单选）
+  - 切换时调用 `set_level()` 实时生效
+  - 切换后打印 INFO 日志 "Log level changed to XXX"
+  - `set_level()` 自动持久化 `log_level` 到 `config.json`
+- `main.py` 启动时读取并恢复上次设置的日志级别（覆盖环境变量默认值）
+- `.gitignore` 添加 `logs/` 目录，防止日志文件被提交
+- 梳理现有日志调用：
+  - 高频调试信息（如 `_on_transcribe_done` 调用轨迹）降级为 DEBUG
+  - 用户操作记录（切换角色大小、点击互动、语音录制）保持 INFO
+  - 异常和错误保持 ERROR/WARNING
+
 ### v0.2 —— 接入真实 AI
 - 接入 Kimi Claw API 真实 HTTP 请求（替换占位模式）
 - 对话历史内存级管理（最近 20 条上下文）
