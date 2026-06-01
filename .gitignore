@@ -38,6 +38,7 @@ Thumbs.db
 
 # Config / Secrets
 config.yaml
+config.json
 .env
 *.env
 

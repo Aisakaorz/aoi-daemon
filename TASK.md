@@ -153,6 +153,22 @@
 
 ---
 
+### v0.1.8 —— 配置持久化（config.json）
+- [✔] utils/config_manager.py: JSON 配置管理器（load/save/get/set，变更时自动 save）
+- [✔] 配置文件路径：项目根目录 config.json（已加入 .gitignore）
+- [✔] 持久化 window_geometry: x, y, width, height（moveEvent/resizeEvent 500ms 防抖保存）
+- [✔] 持久化 character_size: small/medium/large（菜单切换时保存）
+- [✔] 持久化 always_on_top: bool（菜单切换时保存）
+- [✔] 持久化 taskbar_snap: bool（菜单切换时保存）
+- [✔] 持久化 chat_enabled: bool（菜单切换时保存）
+- [✔] main.py: 启动入口调用 cfg.load()，确保配置在程序启动时被加载到内存
+- [✔] main_window.py _apply_config(): 启动时自动恢复所有配置
+- [✔] 恢复顺序：角色大小 → 置顶 → 吸附 → 聊天 → 窗口位置（覆盖默认位置）
+- [✔] showEvent(): 窗口首次显示后重新 move() 确认位置，覆盖窗口管理器可能的默认定位
+- [✔] 无配置时 fallback 到默认行为
+
+---
+
 ### v0.2 —— 接入真实 AI
 - [ ] FR-AI-001: 实现真实 HTTP POST（requests，30s 超时）
 - [ ] FR-AI-001: 解析 choices[0].message.content

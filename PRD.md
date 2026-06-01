@@ -215,6 +215,7 @@ AoiDaemon/
 │   └── stt_provider.py     # STT 封装：AudioRecorder + faster-whisper
 ├── utils/
 │   ├── __init__.py
+│   ├── config_manager.py   # JSON 配置持久化（窗口位置、角色大小、开关状态）
 │   └── logger.py
 └── resources/
     ├── icons/              # 应用图标
@@ -284,6 +285,23 @@ AoiDaemon/
   - main.py 启动前置检查 `resources/model/**/*.model.json`
   - 缺失时弹出 QMessageBox（标题「资源文件缺失」），提示按 README「配置 Live2D 模型」放置文件
   - 点击确定后 `sys.exit(0)` 优雅退出，不进入 Live2D 渲染
+
+### v0.1.8 —— 配置持久化（config.json）
+- 新增 `utils/config_manager.py`：简单的 JSON 配置管理器
+  - 接口：load() / save() / get(key, default) / set(key, value)
+  - 配置文件路径：项目根目录 `config.json`（已加入 .gitignore）
+  - 变更时自动 save，无需手动调用
+- 持久化配置项：
+  - `window_geometry`: x, y, width, height（窗口移动/resize 时 500ms 防抖保存）
+  - `character_size`: "small" | "medium" | "large"（菜单切换时保存）
+  - `always_on_top`: true | false（菜单切换时保存）
+  - `taskbar_snap`: true | false（菜单切换时保存）
+  - `chat_enabled`: true | false（菜单切换时保存）
+- `main.py` 启动入口调用 `cfg.load()`，确保配置在程序启动时被加载到内存
+- `main_window.py` 启动时自动 `_apply_config()` 恢复所有设置
+  - 恢复顺序：角色大小 → 置顶状态 → 任务栏吸附 → 聊天面板 → 窗口位置
+  - `showEvent()` 中窗口首次显示后再次 `move()` 确认位置，覆盖窗口管理器可能的默认定位
+  - 无配置时 fallback 到默认行为（右下角、中号、置顶开启、吸附开启、聊天关闭）
 
 ### v0.2 —— 接入真实 AI
 - 接入 Kimi Claw API 真实 HTTP 请求（替换占位模式）

@@ -37,6 +37,7 @@ sys.stderr = io.TextIOWrapper(
 os.environ["QT_LOGGING_RULES"] = "qt.multimedia.ffmpeg=false"
 
 from core.app import AoiDaemonApp
+from utils import config_manager as cfg
 
 
 # resources/model/ 的绝对路径（以本文件为基准）
@@ -74,6 +75,9 @@ def _show_missing_model_dialog() -> None:
 
 def main() -> int:
     """应用入口"""
+    # 先加载用户配置（窗口位置、角色大小等）
+    cfg.load()
+
     if not _has_model_files():
         _show_missing_model_dialog()
         return 0

@@ -14,6 +14,8 @@ from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QApplication, Q
 from PySide6.QtCore import Qt, QPoint, QByteArray, QTimer
 from PySide6.QtGui import QMouseEvent
 
+from utils import config_manager as cfg
+
 from ui.live2d_canvas import Live2DCanvas
 from ui.chat_panel import ChatPanel
 from ui.tray_icon import TrayIcon
@@ -73,10 +75,16 @@ class MainWindow(QMainWindow):
         self._setup_download_tracking()
 
         # 窗口初始位置：屏幕右下角
-        self._move_to_default_position()
-
         # 当前角色缩放比例（1.0 = 默认 400×600）
         self._current_scale = 1.0
+
+        # 窗口位置/尺寸防抖保存定时器
+        self._save_geometry_timer = QTimer(self)
+        self._save_geometry_timer.setSingleShot(True)
+        self._save_geometry_timer.timeout.connect(self._save_window_geometry)
+
+        # 从配置恢复用户设置（覆盖默认值）
+        self._apply_config()
 
         logger.info("MainWindow 初始化完成")
 
@@ -121,6 +129,66 @@ class MainWindow(QMainWindow):
         self._chat.geometry_changed.connect(self._move_chat_to_bottom)
         # 窗口 resize 时重新调整聊天面板位置
         self.resizeEvent = self._on_resize
+
+    def _apply_config(self) -> None:
+        """从 config.json 恢复用户配置（角色大小、置顶、吸附、聊天、窗口位置）"""
+        # 1. 角色大小（先恢复，会改变窗口尺寸）
+        size = cfg.get("character_size", "medium")
+        scale_map = {"small": 0.75, "medium": 1.0, "large": 1.25}
+        scale = scale_map.get(size, 1.0)
+        if scale != 1.0:
+            self._apply_scale(scale)
+        # 同步菜单选中状态
+        for action in self._size_group.actions():
+            action.setChecked(action.data() == scale)
+
+        # 2. 置顶状态
+        top = cfg.get("always_on_top", True)
+        if not top:
+            flags = self.windowFlags()
+            self.setWindowFlags(flags & ~Qt.WindowType.WindowStaysOnTopHint)
+            self._action_top.setChecked(False)
+            self.show()
+        else:
+            self._action_top.setChecked(True)
+
+        # 3. 任务栏吸附
+        snap = cfg.get("taskbar_snap", True)
+        self._action_snap.setChecked(snap)
+        if snap:
+            self._snap_to_taskbar()
+
+        # 4. 聊天面板
+        chat = cfg.get("chat_enabled", False)
+        if chat:
+            self._chat.show()
+            self._move_chat_to_bottom()
+            self._chat._input.setFocus()
+        else:
+            self._chat.hide()
+
+        # 5. 窗口位置（最后恢复，覆盖默认位置）
+        geo = cfg.get("window_geometry")
+        if geo:
+            self.setGeometry(geo["x"], geo["y"], geo["width"], geo["height"])
+        else:
+            self._move_to_default_position()
+
+        logger.info(
+            f"配置已恢复: size={size}, top={top}, snap={snap}, chat={chat}"
+        )
+
+    def _save_window_geometry(self) -> None:
+        """保存当前窗口位置与尺寸到 config.json"""
+        cfg.set(
+            "window_geometry",
+            {
+                "x": self.x(),
+                "y": self.y(),
+                "width": self.width(),
+                "height": self.height(),
+            },
+        )
 
     def _on_model_ready(self) -> None:
         """Live2D 模型初始化完成后关闭启动画面"""
@@ -425,9 +493,15 @@ class MainWindow(QMainWindow):
                 chat.raise_()
 
     def _on_resize(self, event) -> None:
-        """窗口大小变化时，重新调整聊天面板位置"""
+        """窗口大小变化时，重新调整聊天面板位置并防抖保存尺寸"""
         super().resizeEvent(event)
         self._move_chat_to_bottom()
+        self._save_geometry_timer.start(500)
+
+    def moveEvent(self, event) -> None:
+        """窗口移动时防抖保存位置"""
+        super().moveEvent(event)
+        self._save_geometry_timer.start(500)
 
     def _snap_to_taskbar(self) -> None:
         """拖拽释放时：若角色底部靠近任务栏顶部则吸附"""
@@ -461,8 +535,16 @@ class MainWindow(QMainWindow):
     # ---- 事件重写 ----
 
     def showEvent(self, event) -> None:
-        """窗口首次显示时延迟重新定位聊天面板（确保 Qt 尺寸计算已就绪）"""
+        """窗口首次显示时重新确认位置（覆盖窗口管理器可能的默认定位），并延迟调整聊天面板"""
         super().showEvent(event)
+        if not getattr(self, '_geometry_restored', False):
+            self._geometry_restored = True
+            geo = cfg.get("window_geometry")
+            if geo:
+                self.move(geo["x"], geo["y"])
+                # 若开启了吸附，在正确位置基础上再次吸附
+                if self._action_snap.isChecked():
+                    self._snap_to_taskbar()
         QTimer.singleShot(50, self._move_chat_to_bottom)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -509,6 +591,7 @@ class MainWindow(QMainWindow):
         pos = self.pos()
         self._chat.toggle_visibility()
         self.move(pos)
+        cfg.set("chat_enabled", self._chat.isVisible())
         if self._chat.isVisible():
             self._move_chat_to_bottom()
             self._chat._input.setFocus()
@@ -538,19 +621,23 @@ class MainWindow(QMainWindow):
         if flags & Qt.WindowType.WindowStaysOnTopHint:
             self.setWindowFlags(flags & ~Qt.WindowType.WindowStaysOnTopHint)
             self._action_top.setChecked(False)
+            cfg.set("always_on_top", False)
             logger.info("置顶已关闭")
         else:
             self.setWindowFlags(flags | Qt.WindowType.WindowStaysOnTopHint)
             self._action_top.setChecked(True)
+            cfg.set("always_on_top", True)
             logger.info("置顶已开启")
         self.show()
 
     def _toggle_snap(self) -> None:
         """切换任务栏吸附状态，开启时若已在阈值内则立即吸附"""
         if self._action_snap.isChecked():
+            cfg.set("taskbar_snap", True)
             logger.info("任务栏吸附已开启")
             self._snap_to_taskbar()
         else:
+            cfg.set("taskbar_snap", False)
             logger.info("任务栏吸附已关闭")
 
     def _apply_scale(self, scale: float) -> None:
@@ -581,6 +668,8 @@ class MainWindow(QMainWindow):
             self._chat.set_panel_width(new_chat_width)
             self._move_chat_to_bottom()
 
+        size_map = {0.75: "small", 1.0: "medium", 1.25: "large"}
+        cfg.set("character_size", size_map.get(scale, "medium"))
         logger.info(f"角色大小调整为 {scale}x ({new_width}x{new_height})")
 
     def _show_about(self) -> None:
@@ -627,11 +716,12 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _on_quit(self) -> None:
-        """退出应用"""
+        """退出应用（保存窗口位置后退出）"""
         from voice.model_manager import get_download_manager
         dm = get_download_manager()
         if dm.is_downloading():
             dm.cancel_download()
+        self._save_window_geometry()
         logger.info("用户请求退出")
         self._tray.hide()
         QApplication.instance().quit()
