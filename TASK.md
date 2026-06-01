@@ -183,6 +183,36 @@
 
 ---
 
+### v0.1.10 —— 文件上传 + 斜杠指令 + 气泡交互优化
+- [✔] core/file_manager.py: 用户上传文件管理器（单例、临时存储、退出清空）
+- [✔] ai/command_router.py: 斜杠指令本地路由（/成绩 <歌曲名>）
+- [✔] 太鼓成绩 JSON 解析：模糊匹配歌曲名（song_name / song_name_jp / subtitle）
+- [✔] 成绩回复格式化（多次迭代）：
+  - [✔] 歌曲名双行显示：`🎵 {song_name_jp}` + `🎵 （{song_name}）`
+  - [✔] 难度只看 level_4/5：魔王 / 魔王(表) / 魔王(裏)，显示星级
+  - [✔] 评价等级映射：1→无 2→白粋 3→铜粋 4→银粋 5→金雅 6→粉雅 7→紫雅 8→极
+  - [✔] history 解析：[游玩, 通关, 全连, 全良]，大于 0 才显示
+  - [✔] 分隔线动态适配气泡宽度（超长分隔线 + _wrap_text 截断）
+  - [✔] 去除判定详情（良/可/不可/准确率/最大连打）和玩家信息行
+- [✔] ui/chat_panel.py: 输入框右侧 📎 上传按钮
+- [✔] ui/main_window.py: 连接 file_uploaded 信号，上传后显示系统提示
+- [✔] ui/main_window.py: _on_user_message 优先尝试指令路由，命中则本地即时回复
+- [✔] 非指令消息返回 None，走原有 AI 聊天流程
+- [✔] 应用退出时自动清空 temp/uploads/ 临时目录
+- [✔] 消息气泡支持文本选择和复制：
+  - [✔] BubbleWidget 从 QPainter 自绘改为 QLabel 子控件
+  - [✔] 支持鼠标拖拽选中和 Ctrl+C 复制
+  - [✔] 用 QPalette 颜色 alpha + paintEvent.setOpacity() 替代 QGraphicsOpacityEffect
+  - [✔] 修复 QGraphicsOpacityEffect + 手动 setGeometry 导致的渲染异常（气泡消失/截断）
+- [✔] 系统消息气泡（add_system_message）：文件上传提示移入消息列表
+  - [✔] 粉色渐变背景、8pt 字体、圆角 6px、居中显示
+  - [✔] 跟随消息列表正常滚动和淡出
+- [✔] 启动画面精简：移除进度条（避免 initializeGL 中 processEvents/msleep 卡住）
+  - [✔] 保留图标 + 标题 + 加载文案
+- [✔] 修复 KeyError('song_detail')：JSON 中缺失该字段的条目安全跳过
+
+---
+
 ### v0.2 —— 接入真实 AI
 - [ ] FR-AI-001: 实现真实 HTTP POST（requests，30s 超时）
 - [ ] FR-AI-001: 解析 choices[0].message.content

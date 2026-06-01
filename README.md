@@ -23,6 +23,7 @@
 - 📐 **角色大小切换** —— 小/中/大三档缩放，气泡同步自适应
 - 💾 **配置持久化** —— 窗口位置、角色大小、置顶状态、任务栏吸附、聊天开关自动保存到 config.json，重启后自动恢复
 - 📝 **日志分级** —— 支持环境变量 AOI_LOG_LEVEL 控制默认级别，托盘菜单可实时切换 DEBUG/INFO/WARNING/ERROR，WARNING/ERROR 日志自动写入 logs/aoi-error.log
+- 📎 **文件上传 + 斜杠指令** —— 上传 JSON 成绩文件后，输入 `/成绩 歌曲名` 即可本地查询成绩，无需等待 AI 回复
 - 📜 **滚轮浏览历史** —— 消息区域滚轮上滚查看历史，顶部消息渐变淡出，底部 mask 硬截断不遮挡输入框
 - 🔊 **录音音量可视化** —— 长按录音时语音按钮实时显示音量条，直观反馈麦克风音量
 - 👁️ **全局视线跟踪** —— 即使鼠标移出窗口，葵酱也会持续看向鼠标方向
@@ -170,6 +171,7 @@ aoi-daemon/
 ├── requirements.txt            # 依赖列表
 ├── core/
 │   ├── app.py                  # 应用主控制器
+│   ├── file_manager.py         # 用户上传文件管理（临时存储/生命周期）
 │   └── state_machine.py        # 角色动作状态机
 ├── ui/
 │   ├── main_window.py          # 透明无边框置顶窗口
@@ -182,6 +184,7 @@ aoi-daemon/
 │   └── model_wrapper.py        # Live2D 模型封装
 ├── ai/
 │   ├── base_provider.py        # AI Provider 抽象基类
+│   ├── command_router.py       # 斜杠指令本地路由（/成绩 等）
 │   └── kimi_claw_provider.py   # Kimi Claw API 封装
 ├── voice/
 │   ├── model_manager.py        # 模型注册表 + 下载管理器
@@ -221,6 +224,7 @@ aoi-daemon/
 | v0.1.7 | 启动加载画面 + 模型缺失优雅降级 | ✅ |
 | v0.1.8 | 配置持久化（config.json） | ✅ |
 | v0.1.9 | 日志分级支持（AOI_LOG_LEVEL + 托盘菜单切换） | ✅ |
+| v0.1.10 | 文件上传 + 斜杠指令（太鼓成绩本地查询） | ✅ |
 | v0.2 | 接入真实 Kimi Claw API | 📋 |
 | v0.3 | TTS 语音输出 + 口型同步 | 📋 |
 | v0.4 | 情感分析 + 状态机 Happy/Sad 状态 | 📋 |

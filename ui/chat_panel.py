@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, QTimer, QVariantAnimation, QEasingCurve, QEvent, QDateTime, QPoint, QRect
 from PySide6.QtGui import (
-    QFont, QPainter, QColor, QLinearGradient, QBrush, QPen, QRegion
+    QFont, QPainter, QColor, QLinearGradient, QBrush, QPen, QRegion, QPalette
 )
 
 from utils.logger import get_logger
@@ -32,14 +32,16 @@ _CHARACTER_BOTTOM_RATIO = 0.955
 
 class BubbleWidget(QWidget):
     """
-    自定义气泡组件（QPainter 自绘 + 手动字符级换行 + 文本垂直居中）
-    使用 widget 上下文中的 QFontMetrics 确保 DPI/字体完全一致，
-    手动逐字符排版后逐行绘制，根治 Qt 文本引擎尺寸计算与渲染不一致的 bug。
+    自定义气泡组件（圆角渐变背景 + QLabel 文本，支持鼠标选中和复制）
+    保留手动字符级换行确保尺寸计算精确，文本由 QLabel 渲染以支持交互。
+    透明度通过 paintEvent setOpacity + QPalette 颜色 alpha 同步控制，避免
+    QGraphicsOpacityEffect 在手动 setGeometry 场景下的渲染异常。
     """
 
-    def __init__(self, text: str, is_user: bool, max_width: int, parent=None):
+    def __init__(self, text: str, is_user: bool, max_width: int, is_system: bool = False, parent=None):
         super().__init__(parent)
         self._is_user = is_user
+        self._is_system = is_system
         self._fade_opacity = 0.0
         self._position_opacity = 1.0
         self._raw_text = text
@@ -47,9 +49,19 @@ class BubbleWidget(QWidget):
         self.setFont(self._font)
         self._max_w = max_width
         self._pad_h = 10
-        self._pad_v = 6
+        self._pad_v = 8
+        self._radius = 8
 
-        if is_user:
+        if is_system:
+            self._text_color = QColor("#4A3F3A")
+            self._bg_start = QColor("#FFC8C3")
+            self._bg_end = QColor("#FFB3AD")
+            self._font = QFont("Microsoft YaHei", 8)
+            self.setFont(self._font)
+            self._pad_h = 10
+            self._pad_v = 5
+            self._radius = 6
+        elif is_user:
             self._text_color = QColor("#1A3A5C")
             self._bg_start = QColor("#A0D8EF")
             self._bg_end = QColor("#7ECBF5")
@@ -58,18 +70,41 @@ class BubbleWidget(QWidget):
             self._bg_start = QColor("#FFF5F5")
             self._bg_end = QColor("#FFE4E1")
 
+        # QLabel 显示文本，支持鼠标/键盘选择和复制
+        self._label = QLabel(self)
+        self._label.setFont(self._font)
+        self._label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        # 不通过 styleSheet 设 color，避免频繁修改 styleSheet 的开销；
+        # 颜色由 QPalette 控制，便于同步 alpha 透明度。
+        self._label.setStyleSheet("background: transparent; border: none;")
+        self._label.setWordWrap(False)
+
         self._lines: list[str] = []
         self._compute_size()
+        self._update_opacity()
 
     def set_fade_opacity(self, opacity: float) -> None:
         """淡入动画使用的透明度（0.0 → 1.0）"""
         self._fade_opacity = max(0.0, min(1.0, float(opacity)))
-        self.update()
+        self._update_opacity()
 
     def set_position_opacity(self, opacity: float) -> None:
         """根据在面板中的垂直位置计算的透明度（越靠上越淡）"""
         self._position_opacity = max(0.0, min(1.0, float(opacity)))
+        self._update_opacity()
+
+    def _update_opacity(self) -> None:
+        """同步更新背景（paintEvent）和文本（QPalette）的透明度"""
         self.update()
+        opacity = self._fade_opacity * self._position_opacity
+        color = QColor(self._text_color)
+        color.setAlpha(int(opacity * 255))
+        palette = self._label.palette()
+        palette.setColor(QPalette.ColorRole.WindowText, color)
+        self._label.setPalette(palette)
 
     def update_max_width(self, max_width: int) -> None:
         """更新最大宽度并重新计算尺寸（用于角色大小缩放时同步调整气泡）"""
@@ -82,65 +117,65 @@ class BubbleWidget(QWidget):
     # ---- 尺寸计算 ----
 
     def _wrap_text(self, text: str, max_width: int) -> list[str]:
-        """字符级换行"""
+        """字符级换行，正确处理原始文本中的 \\n 换行符"""
         fm = self.fontMetrics()
         lines: list[str] = []
-        current = ""
-        for ch in text:
-            test = current + ch
-            if fm.horizontalAdvance(test) > max_width and current:
+        # 先按原始换行符拆分为段落，再逐段落字符级换行
+        for paragraph in text.split("\n"):
+            # 分隔线特殊处理：截断到内容区域宽度
+            if paragraph and all(ch == "━" for ch in paragraph):
+                char_w = fm.horizontalAdvance("━")
+                max_chars = max(1, max_width // char_w)
+                lines.append("━" * max_chars)
+                continue
+
+            current = ""
+            for ch in paragraph:
+                test = current + ch
+                if fm.horizontalAdvance(test) > max_width and current:
+                    lines.append(current)
+                    current = ch
+                else:
+                    current = test
+            if current:
                 lines.append(current)
-                current = ch
-            else:
-                current = test
-        if current:
-            lines.append(current)
         return lines
 
     def _compute_size(self) -> None:
-        fm = self.fontMetrics()
         content_max_w = self._max_w - self._pad_h * 2
 
         self._lines = self._wrap_text(self._raw_text, content_max_w)
-        max_line_w = max(
-            (fm.horizontalAdvance(line) for line in self._lines), default=0
-        )
-        line_h = fm.height()
 
-        w = min(max_line_w + self._pad_h * 2, self._max_w)
-        # +6px buffer，确保圆角和 descender 不被裁掉
-        h = len(self._lines) * line_h + self._pad_v * 2 + 6
+        # 用 QLabel 显示手动换行后的文本
+        self._label.setText("\n".join(self._lines))
+        self._label.adjustSize()
+
+        # 气泡尺寸以 QLabel 实际渲染尺寸为基准，确保文字完整显示
+        w = min(self._label.width() + self._pad_h * 2, self._max_w)
+        h = self._label.height() + self._pad_v * 2
         self.setFixedSize(w, h)
+
+        # QLabel 在气泡内水平居中、垂直居中
+        label_x = self._pad_h + (w - self._pad_h * 2 - self._label.width()) // 2
+        label_y = self._pad_v + (h - self._pad_v * 2 - self._label.height()) // 2
+        self._label.setGeometry(label_x, label_y, self._label.width(), self._label.height())
 
     # ---- 绘制 ----
 
     def paintEvent(self, _event) -> None:
+        opacity = self._fade_opacity * self._position_opacity
         painter = QPainter(self)
-        # 最终透明度 = 淡入动画透明度 × 位置淡出透明度
-        painter.setOpacity(self._fade_opacity * self._position_opacity)
+        painter.setOpacity(opacity)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # 1) 圆角渐变背景（圆角半径 8px，避免 12px 与文本底部冲突）
+        # 圆角渐变背景（圆角半径 8px，避免 12px 与文本底部冲突）
         rect = self.rect().adjusted(1, 1, -1, -1)
         gradient = QLinearGradient(0, 0, 0, self.height())
         gradient.setColorAt(0, self._bg_start)
         gradient.setColorAt(1, self._bg_end)
         painter.setBrush(QBrush(gradient))
         painter.setPen(QPen(QColor(0, 0, 0, 15), 1))
-        painter.drawRoundedRect(rect, 8, 8)
-
-        # 2) 多行纯文本（逐行绘制，垂直居中）
-        painter.setPen(self._text_color)
-        painter.setFont(self._font)
-        fm = self.fontMetrics()
-        line_h = fm.height()
-        text_h = len(self._lines) * line_h
-        available_h = self.height() - self._pad_v * 2
-        start_y = self._pad_v + (available_h - text_h) / 2
-
-        for i, line in enumerate(self._lines):
-            baseline_y = start_y + i * line_h + fm.ascent()
-            painter.drawText(self._pad_h, int(baseline_y), line)
+        painter.drawRoundedRect(rect, self._radius, self._radius)
 
 
 class ChatPanel(QWidget):
@@ -153,6 +188,7 @@ class ChatPanel(QWidget):
 
     message_sent = Signal(str)
     geometry_changed = Signal()
+    file_uploaded = Signal(str)  # 用户选择文件后发射文件路径
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -256,6 +292,26 @@ class ChatPanel(QWidget):
         """)
         self._input.installEventFilter(self)
         frame_layout.addWidget(self._input)
+
+        # 文件上传按钮（📎），样式与语音按钮一致
+        self._upload_btn = QLabel("📎", self._input_frame)
+        self._upload_btn.setFixedSize(28, 28)
+        self._upload_btn.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._upload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._upload_btn.setStyleSheet("""
+            QLabel {
+                background-color: rgba(200, 160, 140, 0.35);
+                border-radius: 8px;
+                font-size: 11pt;
+            }
+            QLabel:hover {
+                background-color: rgba(200, 160, 140, 0.55);
+                border-radius: 8px;
+            }
+        """)
+        self._upload_btn.mousePressEvent = lambda e: self._on_upload_clicked() if e.button() == Qt.MouseButton.LeftButton else None
+        frame_layout.addWidget(self._upload_btn)
+
         layout.addWidget(self._input_frame)
 
         # 下载进度外壳（与输入框布局一致：左按钮 + 右详情，背景叠加进度）
@@ -311,6 +367,43 @@ class ChatPanel(QWidget):
         self.setFixedSize(width, new_height)
         # 重新计算透明度（消息数量/高度变化后可能溢出）
         self._update_opacity_by_position()
+
+    def _on_upload_clicked(self) -> None:
+        """点击上传按钮，弹出文件选择器"""
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择要上传的成绩文件",
+            "",
+            "JSON 文件 (*.json);;所有文件 (*.*)",
+        )
+        if path:
+            self.file_uploaded.emit(path)
+
+    def add_system_message(self, text: str) -> None:
+        """添加一条系统提示消息（居中、深色背景，跟随消息列表滚动）"""
+        # 系统消息通常很短，放宽宽度限制让它自适应，避免不必要的换行
+        bubble = BubbleWidget(text, is_user=False, max_width=self.width(), is_system=True)
+
+        row = QWidget()
+        row.setStyleSheet("background: transparent;")
+        row.setFixedHeight(bubble.height())
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(0)
+        # 系统消息居中显示
+        row_layout.addStretch()
+        row_layout.addWidget(bubble)
+        row_layout.addStretch()
+
+        row.setProperty("_layout_height", bubble.height())
+
+        self._msg_layout.addWidget(row)
+        self._message_widgets.append(row)
+
+        self._input_frame.raise_()
+        QTimer.singleShot(0, lambda: self._finalize_message(row, bubble))
+        logger.debug(f"添加系统消息: {text[:30]}...")
 
     def _on_send(self) -> None:
         """用户按下回车发送消息"""

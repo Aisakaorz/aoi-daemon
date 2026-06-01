@@ -319,6 +319,44 @@ AoiDaemon/
   - 用户操作记录（切换角色大小、点击互动、语音录制）保持 INFO
   - 异常和错误保持 ERROR/WARNING
 
+### v0.1.10 —— 文件上传 + 斜杠指令 + 气泡交互优化
+
+**文件上传系统**
+- 新增 `core/file_manager.py`：用户上传文件管理器
+  - 文件暂存到 `temp/uploads/` 目录
+  - `taiko_scores_*.json` 文件自动替换旧文件
+  - 应用退出时自动清空临时目录
+- `ui/chat_panel.py`：输入框右侧添加 📎 上传按钮
+- `ui/main_window.py`：连接 `file_uploaded` 信号，收到文件后显示系统提示
+
+**斜杠指令本地路由**
+- 新增 `ai/command_router.py`：本地指令路由器，不经过 LLM
+  - 识别 `/keyword args` 格式指令
+  - 当前支持 `/成绩 <歌曲名>`：读取太鼓成绩 JSON，模糊匹配 song_name / song_name_jp / subtitle
+  - 非指令消息返回 None，走原有 AI 聊天流程
+- `ui/main_window.py`：`_on_user_message` 优先尝试指令路由，命中则本地即时回复
+
+**太鼓成绩查询格式化（多次迭代）**
+- 歌曲信息：第一行 `🎵 {song_name_jp}`，第二行 `🎵 （{song_name}）`
+- 难度只看 level_4（魔王/表）和 level_5（魔王/裏），有两者时分别显示
+- 评价等级映射：`1→无 2→白粋 3→铜粋 4→银粋 5→金雅 6→粉雅 7→紫雅 8→极`
+- history 解析：`[游玩次数, 通关次数, 全连次数, 全良次数]`，大于 0 才显示
+- 分隔线动态适配气泡宽度（超长分隔线 + BubbleWidget 字符级截断）
+- 去除判定详情和玩家信息行
+
+**消息气泡交互优化**
+- `BubbleWidget` 文本渲染从 `QPainter` 自绘改为 `QLabel` 子控件
+  - 支持鼠标拖拽选中和 `Ctrl+C` 复制
+  - 用 `QPalette` 颜色 alpha + `paintEvent.setOpacity()` 同步控制透明度
+  - 避免 `QGraphicsOpacityEffect` 在手动 `setGeometry()` 场景下的渲染异常
+- 新增系统消息气泡（`add_system_message`）：文件上传提示移入消息列表
+  - 粉色渐变背景、8pt 字体、圆角 6px、居中显示
+  - 跟随消息列表正常滚动和淡出
+
+**启动画面精简**
+- 移除进度条（加载过快无视觉效果，且 processEvents/msleep 导致 OpenGL 卡住）
+- 保留图标 + 标题 + 「葵酱正在梳妆打扮，请稍候~」文案
+
 ### v0.2 —— 接入真实 AI
 - 接入 Kimi Claw API 真实 HTTP 请求（替换占位模式）
 - 对话历史内存级管理（最近 20 条上下文）

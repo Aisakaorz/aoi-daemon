@@ -5,8 +5,8 @@
 """
 import os
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, QApplication
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QApplication
+from PySide6.QtCore import Qt
 from PySide6.QtGui import (
     QFont,
     QIcon,
@@ -40,7 +40,7 @@ class SplashScreen(QWidget):
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool,
         )
-        self.setFixedSize(340, 200)
+        self.setFixedSize(340, 170)
 
         # 用遮罩裁剪出圆角形状，样式表背景色会在可见区域内正常显示
         self._apply_rounded_mask()
@@ -112,32 +112,6 @@ class SplashScreen(QWidget):
         self._status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._status)
 
-        # 进度条（0~100，反映真实加载进度）
-        self._progress = QProgressBar()
-        self._progress.setRange(0, 100)
-        self._progress.setValue(0)
-        self._progress.setTextVisible(False)
-        self._progress.setFixedHeight(8)
-        self._progress.setStyleSheet(
-            """
-            QProgressBar {
-                background-color: #FFE0D6;
-                border-radius: 4px;
-                border: none;
-            }
-            QProgressBar::chunk {
-                background-color: #FF8A80;
-                border-radius: 4px;
-            }
-        """
-        )
-        layout.addWidget(self._progress)
-
-        # 进度条平滑动画
-        self._target_progress = 0
-        self._progress_timer = QTimer(self)
-        self._progress_timer.timeout.connect(self._animate_progress)
-
         self._center_on_screen()
         logger.info("启动画面已创建")
 
@@ -173,23 +147,5 @@ class SplashScreen(QWidget):
     def set_status(self, text: str) -> None:
         """更新加载状态文案"""
         self._status.setText(text)
-        QApplication.processEvents()
 
-    def set_progress(self, value: int) -> None:
-        """设置目标进度值，由定时器平滑插值到目标"""
-        self._target_progress = max(0, min(100, value))
-        if not self._progress_timer.isActive():
-            self._progress_timer.start(16)  # ~60fps
 
-    def _animate_progress(self) -> None:
-        """ease-out 插值动画，让进度条连续平滑变化"""
-        current = self._progress.value()
-        diff = self._target_progress - current
-        if abs(diff) <= 1:
-            self._progress.setValue(self._target_progress)
-            self._progress_timer.stop()
-            return
-        # ease-out: 每次移动差值的 20%，最低 1
-        step = max(1, int(abs(diff) * 0.2))
-        self._progress.setValue(current + (step if diff > 0 else -step))
-        QApplication.processEvents()
