@@ -4,10 +4,6 @@
 >
 > **葵酱（Aoi）** 是基于 Live2D 免费模型 **haru** 的桌面看板娘
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![PySide6](https://img.shields.io/badge/PySide6-6.11%2B-green)
-![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-lightgrey)
-
 ## ✨ 功能特性
 
 - 🎭 **Live2D 实时渲染** —— 60 FPS 流畅渲染，视线跟随鼠标，自然呼吸动画
@@ -62,6 +58,7 @@ source .venv/bin/activate
 ### 3. 安装依赖
 
 ```bash
+pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/
 pip install -r requirements.txt
 ```
 
