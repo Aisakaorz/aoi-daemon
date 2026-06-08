@@ -1,5 +1,12 @@
 # 葵之使魔 ~ AoiDaemon ~
 
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![PySide6](https://img.shields.io/badge/PySide6-6.11%2B-green)
+![Live2D](https://img.shields.io/badge/Live2D-Cubism%202.x-darkorange)
+![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-steelblue)
+![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Status](https://img.shields.io/badge/Status-In%20Development-orange.svg)
+
 > 桌面级 Live2D AI 伴侣应用 —— 你的桌面使魔/看板娘
 >
 > **葵酱（Aoi）** 是基于 Live2D 免费模型 **haru** 的桌面看板娘
@@ -43,7 +50,7 @@ git clone https://github.com/Aisakaorz/aoi-daemon.git
 cd aoi-daemon
 ```
 
-### 2. 创建虚拟环境
+### 2. 创建虚拟环境（或者直接IDE搞最方便）
 
 ```bash
 # Windows
@@ -58,7 +65,6 @@ source .venv/bin/activate
 ### 3. 安装依赖
 
 ```bash
-pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/
 pip install -r requirements.txt
 ```
 

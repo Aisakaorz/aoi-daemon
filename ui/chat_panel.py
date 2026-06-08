@@ -265,7 +265,7 @@ class ChatPanel(QWidget):
         self._update_input_frame_style(focused=False)
 
         frame_layout = QHBoxLayout(self._input_frame)
-        frame_layout.setContentsMargins(8, 0, 12, 0)
+        frame_layout.setContentsMargins(8, 0, 8, 0)
         frame_layout.setSpacing(6)
 
         # 语音转文字按钮
@@ -305,8 +305,7 @@ class ChatPanel(QWidget):
                 font-size: 11pt;
             }
             QLabel:hover {
-                background-color: rgba(200, 160, 140, 0.55);
-                border-radius: 8px;
+                background-color: rgba(200, 160, 140, 0.5);
             }
         """)
         self._upload_btn.mousePressEvent = lambda e: self._on_upload_clicked() if e.button() == Qt.MouseButton.LeftButton else None

@@ -75,14 +75,8 @@ def _show_missing_model_dialog() -> None:
 
 def main() -> int:
     """应用入口"""
-    # 先加载用户配置（窗口位置、角色大小、日志级别等）
+    # 先加载用户配置（窗口位置、角色大小等）
     cfg.load()
-
-    # 恢复上次设置的日志级别（覆盖环境变量默认值）
-    from utils.logger import set_level
-    saved_level = cfg.get("log_level")
-    if saved_level:
-        set_level(saved_level)
 
     if not _has_model_files():
         _show_missing_model_dialog()

@@ -170,16 +170,20 @@
 ---
 
 ### v0.1.9 —— 日志分级支持
-- [✔] utils/logger.py 重写：环境变量 AOI_LOG_LEVEL 控制默认级别（默认 INFO）
-- [✔] 运行时 set_level() 遍历所有已创建 logger，即时生效
-- [✔] WARNING/ERROR 级别日志通过独立 FileHandler 写入 logs/aoi-error.log
-- [✔] 托盘右键菜单新增「日志级别」子菜单（DEBUG/INFO/WARNING/ERROR 单选）
-- [✔] 切换时调用 set_level() 实时生效，切换后打印 INFO 日志
-- [✔] set_level() 自动持久化 log_level 到 config.json
-- [✔] main.py 启动时读取并恢复上次设置的日志级别
+- [✔] utils/logger.py 重写：控制台固定 DEBUG 输出（显示全部日志）
+- [✔] WARNING/ERROR 级别日志通过独立 FileHandler 写入 logs/aoi.log
 - [✔] 高频调试信息降级为 DEBUG（如 _on_transcribe_done 调用轨迹）
 - [✔] 用户操作记录保持 INFO，异常和错误保持 ERROR/WARNING
 - [✔] .gitignore: 添加 logs/ 目录，防止日志文件被提交
+
+### v0.1.12 —— UI 微调与日志简化
+- [✔] ui/chat_panel.py: 上传按钮右间距与语音按钮左间距对齐（8px）
+- [✔] ui/chat_panel.py: 统一上传按钮与语音按钮的样式（背景色、hover 透明度一致）
+- [✔] ui/main_window.py: 移除托盘菜单「日志级别」子菜单
+- [✔] utils/logger.py: 控制台默认 DEBUG，不再从环境变量或配置读取级别
+- [✔] utils/logger.py: 移除 log_level 配置持久化
+- [✔] utils/logger.py: 日志文件从 aoi-error.log 更名为 aoi.log
+- [✔] main.py: 移除启动时恢复日志级别的代码
 
 ---
 
@@ -250,6 +254,7 @@
 - [ ] FR-ST-001: 开机自启（Windows 注册表/启动文件夹、Mac launchd）
 - [ ] PyInstaller 打包（Windows .exe）
 - [ ] Py2app 打包（macOS .app）
+
 - [ ] README.md（项目介绍、安装、配置、模型版权说明）
 - [ ] 打包时排除 resources/model/，README 注明需用户自行放置模型
 

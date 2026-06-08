@@ -305,19 +305,22 @@ AoiDaemon/
 
 ### v0.1.9 —— 日志分级支持
 - 重写 `utils/logger.py`：
-  - 控制台级别由环境变量 `AOI_LOG_LEVEL` 控制（默认 INFO）
-  - 运行时 `set_level()` 遍历所有已创建 logger，即时生效
-  - WARNING/ERROR 级别日志通过独立 `FileHandler` 写入 `logs/aoi-error.log`
-- 托盘右键菜单新增「日志级别」子菜单（DEBUG/INFO/WARNING/ERROR 单选）
-  - 切换时调用 `set_level()` 实时生效
-  - 切换后打印 INFO 日志 "Log level changed to XXX"
-  - `set_level()` 自动持久化 `log_level` 到 `config.json`
-- `main.py` 启动时读取并恢复上次设置的日志级别（覆盖环境变量默认值）
+  - 控制台固定输出 DEBUG 及以上级别（运行界面显示全部日志）
+  - WARNING/ERROR 级别日志通过独立 `FileHandler` 写入 `logs/aoi.log`
 - `.gitignore` 添加 `logs/` 目录，防止日志文件被提交
 - 梳理现有日志调用：
   - 高频调试信息（如 `_on_transcribe_done` 调用轨迹）降级为 DEBUG
   - 用户操作记录（切换角色大小、点击互动、语音录制）保持 INFO
   - 异常和错误保持 ERROR/WARNING
+
+### v0.1.12 —— UI 微调与日志简化
+- `ui/chat_panel.py`：上传按钮右间距与语音按钮左间距对齐（8px）
+- `ui/chat_panel.py`：统一上传按钮与语音按钮的样式（背景色、hover 透明度，移除上传按钮多余的 `font-size`）
+- `ui/main_window.py`：移除托盘菜单「日志级别」子菜单
+- `utils/logger.py`：简化日志级别管理
+  - 控制台默认 DEBUG，不再从环境变量或配置读取
+  - 移除 `log_level` 配置持久化
+  - 日志文件从 `aoi-error.log` 更名为 `aoi.log`
 
 ### v0.1.10 —— 文件上传 + 斜杠指令 + 气泡交互优化
 
