@@ -7,14 +7,14 @@
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Status](https://img.shields.io/badge/Status-In%20Development-orange.svg)
 
-> 桌面级 Live2D AI 伴侣应用 —— 你的桌面使魔/看板娘
+> 桌面级 Live2D 伴侣应用 —— 你的桌面使魔/看板娘
 >
 > **葵酱（Aoi）** 是基于 Live2D 免费模型 **haru** 的桌面看板娘
 
 ## ✨ 功能特性
 
 - 🎭 **Live2D 实时渲染** —— 60 FPS 流畅渲染，视线跟随鼠标，自然呼吸动画
-- 💬 **AI 对话聊天** —— 接入 Kimi Claw API，支持文本交互（v0.1 为占位模式，v0.2 接入真实 API）
+- 💬 **聊天面板 + 本地指令** —— 气泡式聊天界面，支持 `/成绩` 等斜杠指令本地即时查询，无需联网
 - 🎙️ **语音输入** —— 长按 🎙 按钮说话，faster-whisper 本地转文字填入输入框
 - 📥 **语音模型管理** —— 菜单栏选择语音转文字模型，支持后台下载，托盘实时显示进度
 - 👆 **点击互动** —— 点击头部/身体触发不同动作反应，附带音效反馈
@@ -25,14 +25,14 @@
 - 💻 **系统托盘** —— 最小化到托盘，右键快捷菜单
 - 📐 **角色大小切换** —— 小/中/大三档缩放，气泡同步自适应
 - 💾 **配置持久化** —— 窗口位置、角色大小、置顶状态、任务栏吸附、聊天开关自动保存到 config.json，重启后自动恢复
-- 📝 **日志分级** —— 支持环境变量 AOI_LOG_LEVEL 控制默认级别，托盘菜单可实时切换 DEBUG/INFO/WARNING/ERROR，WARNING/ERROR 日志自动写入 logs/aoi-error.log
+- 📝 **日志分级** —— 控制台输出全部调试日志，WARNING/ERROR 自动写入 `logs/aoi.log`
 - 📎 **文件上传 + 斜杠指令** —— 上传 JSON 成绩文件后，输入 `/成绩 歌曲名` 即可本地查询成绩，无需等待 AI 回复
 - 📜 **滚轮浏览历史** —— 消息区域滚轮上滚查看历史，顶部消息渐变淡出，底部 mask 硬截断不遮挡输入框
 - 🔊 **录音音量可视化** —— 长按录音时语音按钮实时显示音量条，直观反馈麦克风音量
 - 👁️ **全局视线跟踪** —— 即使鼠标移出窗口，葵酱也会持续看向鼠标方向
 - 🛡️ **模型完整性检查** —— 菜单打开时自动检测模型文件是否存在，缺失时自动取消勾选
 - 🔄 **下载自动切换** —— 首次下载完成后自动设为当前语音模型，无需手动切换
-- ⏳ **启动加载画面** —— Live2D 模型加载期间显示启动画面，带真实进度反馈，避免空白窗口
+- ⏳ **启动加载画面** —— Live2D 模型加载期间显示启动画面，避免空白窗口
 - 🚫 **模型缺失优雅降级** —— 首次运行未放置模型文件时弹出友好提示，引导用户查看 README 配置，而非透明窗口无感知崩溃
 
 ## 📦 安装
@@ -122,7 +122,7 @@ resources/model/live2d-widget-model-haru/
     └── ...
 ```
 
-> ⚠️ 请确保模型文件路径与 `l2d/model_wrapper.py` 中的 `model_path` 一致。
+> ⚠️ 请确保模型文件路径与 `ui/live2d_canvas.py` 中的模型加载路径一致。
 
 ### 5. 配置语音转文字模型（可选）
 
@@ -209,9 +209,8 @@ aoi-daemon/
 |------|------|
 | GUI 框架 | PySide6 |
 | Live2D 渲染 | live2d-py (v2, Cubism 2.x) |
-| AI 对话 | Kimi Claw API（v0.2 接入） |
 | 语音识别 | faster-whisper tiny |
-| 语音合成 | edge-tts（v0.3） |
+| 模型下载 | huggingface-hub + tqdm |
 | 日志 | Python logging |
 
 ## 📋 版本路线图
@@ -226,13 +225,12 @@ aoi-daemon/
 | v0.1.5 | 语音模型下载入口重构（菜单选择+后台下载+托盘进度） | ✅ |
 | v0.1.7 | 启动加载画面 + 模型缺失优雅降级 | ✅ |
 | v0.1.8 | 配置持久化（config.json） | ✅ |
-| v0.1.9 | 日志分级支持（AOI_LOG_LEVEL + 托盘菜单切换） | ✅ |
+| v0.1.9 | 日志分级支持 | ✅ |
 | v0.1.10 | 文件上传 + 斜杠指令（太鼓成绩本地查询） | ✅ |
-| v0.2 | 接入真实 Kimi Claw API | 📋 |
-| v0.3 | TTS 语音输出 + 口型同步 | 📋 |
-| v0.4 | 情感分析 + 状态机 Happy/Sad 状态 | 📋 |
-| v0.5 | 设置窗口 + 配置持久化 | 📋 |
-| v0.6 | SQLite 历史 + 开机自启 + 打包 | 📋 |
+| v0.1.11 | 移除已跟踪模型 + 国内镜像源下载说明 | ✅ |
+| v0.1.12 | 上传按钮样式对齐 + 日志简化 | ✅ |
+| v0.1.13 | 高危 bug 修复（STT 卡顿、指令崩溃、退出安全、下载竞态） | ✅ |
+| 下一步 | PyInstaller 打包（Windows .exe，排除模型资源） | 📋 |
 
 ## 📄 模型与资源声明
 
@@ -261,4 +259,3 @@ aoi-daemon/
 - [live2d-py](https://github.com/EasyLive2D/live2d-py) — Python Live2D 绑定
 - [PySide6](https://wiki.qt.io/Qt_for_Python) — Qt Python 绑定
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — 本地语音识别
-- [Kimi](https://kimi.moonshot.cn/) — AI 对话 API

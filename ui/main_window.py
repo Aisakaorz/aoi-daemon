@@ -734,7 +734,7 @@ class MainWindow(QMainWindow):
         line.setStyleSheet("color: #E0E0E0;")
         line.setFixedHeight(2)
 
-        desc = QLabel("桌面级 Live2D AI 伴侣应用\n💻Powered by Aoi🌻 and Kimi🤖")
+        desc = QLabel("桌面级 Live2D 伴侣应用\n💻Powered by Aoi🌻")
         desc.setFont(QFont("Microsoft YaHei", 9))
         desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
         desc.setStyleSheet("color: #888888;")
@@ -751,7 +751,8 @@ class MainWindow(QMainWindow):
         from voice.model_manager import get_download_manager
         dm = get_download_manager()
         if dm.is_downloading():
-            dm.cancel_download()
+            dm.shutdown()  # 协作式取消并等待下载线程结束
+        self._chat.shutdown()  # 停止进行中的录音与相关定时器
         self._save_window_geometry()
         self._file_mgr.clear_all()
         logger.info("用户请求退出")

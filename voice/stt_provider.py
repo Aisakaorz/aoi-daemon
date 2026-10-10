@@ -6,6 +6,7 @@
 import atexit
 import os
 import tempfile
+import threading
 import wave
 from typing import Optional, Callable
 
@@ -67,8 +68,12 @@ class AudioRecorder:
 
     def stop(self) -> Optional[np.ndarray]:
         if self._stream:
-            self._stream.stop()
-            self._stream.close()
+            try:
+                self._stream.stop()
+                self._stream.close()
+            except Exception as e:
+                # PortAudio 在流状态异常时可能抛错，清理路径上不再向上传播
+                logger.warning(f"关闭录音流失败: {e}")
             self._stream = None
         if not self._chunks:
             return None
@@ -114,24 +119,29 @@ class STTProvider:
         # model_size 参数保留兼容，实际从 model_manager 获取当前模型
         self._model_size = model_size
         self._model = None
+        self._model_load_lock = threading.Lock()  # 防止并发转录时重复加载模型
         self._recorder = AudioRecorder()
 
     def _load_model(self) -> None:
         if self._model is not None:
             return
-        from faster_whisper import WhisperModel
-        from voice.model_manager import get_current_model_id, get_model_local_dir, is_model_downloaded
+        # 模型加载耗时数秒，可能并发进入（全局线程池），加锁做双重检查
+        with self._model_load_lock:
+            if self._model is not None:
+                return
+            from faster_whisper import WhisperModel
+            from voice.model_manager import get_current_model_id, get_model_local_dir, is_model_downloaded
 
-        model_id = get_current_model_id()
-        if not is_model_downloaded(model_id):
-            raise RuntimeError(f"模型 {model_id} 未下载")
-        local_dir = get_model_local_dir(model_id)
-        logger.info(f"从本地加载 faster-whisper 模型: {local_dir}")
-        self._model = WhisperModel(
-            local_dir,
-            device="cpu",
-            compute_type="int8",
-        )
+            model_id = get_current_model_id()
+            if not is_model_downloaded(model_id):
+                raise RuntimeError(f"模型 {model_id} 未下载")
+            local_dir = get_model_local_dir(model_id)
+            logger.info(f"从本地加载 faster-whisper 模型: {local_dir}")
+            self._model = WhisperModel(
+                local_dir,
+                device="cpu",
+                compute_type="int8",
+            )
 
     def get_volume(self) -> float:
         """获取当前录音音量（0.0 ~ 1.0）"""
@@ -151,10 +161,18 @@ class STTProvider:
 
         self._recorder.save_wav(data, _STT_TMP_PATH)
 
-        self._load_model()
+        # 注意：模型加载放在 TranscribeRunnable 线程内执行（transcribe 会调 _load_model），
+        # 避免首次转录时在 UI 线程同步加载 WhisperModel 造成界面冻结数秒
         worker = TranscribeRunnable(self, _STT_TMP_PATH)
         worker.signals.finished.connect(on_finished)
         QThreadPool.globalInstance().start(worker)
+
+    def abort_recording(self) -> None:
+        """中止进行中的录音（不转录），用于应用退出等清理场景"""
+        try:
+            self._recorder.stop()
+        except Exception as e:
+            logger.warning(f"中止录音失败: {e}")
 
     def transcribe(self, audio_path: str) -> str:
         self._load_model()

@@ -272,14 +272,25 @@ class DownloadManager(QObject):
             # 不再 disconnect finished 信号，让 _on_finished 自然处理
             # 不再 wait/terminate，避免阻塞 UI 或导致崩溃
 
+    def shutdown(self, timeout_ms: int = 3000) -> None:
+        """退出前调用：协作式取消并等待下载线程结束，防止进程退出时线程仍在运行"""
+        worker = self._worker
+        if worker is not None and worker.isRunning():
+            logger.info("退出前等待下载线程结束...")
+            self._cancelling = True
+            worker.cancel()
+            if not worker.wait(timeout_ms):
+                logger.warning(f"下载线程未在 {timeout_ms}ms 内结束，继续退出")
+
     def _on_progress(self, model_id, pct, downloaded, total, speed):
         self._last_progress = (model_id, pct, downloaded, total, speed)
         self.progress.emit(model_id, pct, downloaded, total, speed)
 
     def _on_finished(self, model_id, success, message):
-        # 无论正常完成还是取消，都先通知 UI，再清理状态
-        self.finished.emit(model_id, success, message)
+        # 无论正常完成还是取消，都先清理自身状态、再通知 UI，
+        # 防止 UI 槽收到 finished 后立即 start_download，新 worker 被后续清理置空
         self._cleanup_after_cancel()
+        self.finished.emit(model_id, success, message)
 
     def _cleanup_after_cancel(self) -> None:
         """统一清理：释放 worker 引用、重置状态、通知 UI"""

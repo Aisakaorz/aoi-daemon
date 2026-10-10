@@ -69,7 +69,7 @@
 - [✔] FR-CH-002: 录音时长过短（<300ms）或单击时，显示葵酱提示气泡
 - [✔] FR-CH-002: 录音时语音按钮实时音量可视化（从下到上填充红色音量条）
 - [✔] FR-CH-002: faster-whisper tiny 模型本地转录，临时 WAV 自动清理
-- [✔] FR-CH-002: 转录结果直接填入输入框（覆盖式，不清空已有内容，因为录音前已清空）
+- [✔] FR-CH-003: 转录结果直接填入输入框（覆盖式，不清空已有内容，因为录音前已清空）
 - [✔] FR-CH-003: 首次使用 STT 时检测本地模型，无模型则提示去菜单栏下载
 - [✔] FR-CH-003: 下载支持取消（协作式取消：HFProgressBar._cancelled 标志位 + RuntimeError 异常）
 - [✔] FR-CH-003: 下载失败友好提示（网络超时、连接失败等）
@@ -103,7 +103,7 @@
 - [✔] FR-LE-005: 空闲动作使用 NORMAL 优先级，确保能替换当前循环的 MotionPriority.IDLE 动作
 - [✔] FR-LE-005: _busy_timer 机制：播放期间阻止新的随机动作触发，避免重叠
 - [✔] FR-LE-005: 单击触发 TAP 时重置 _idle_timer，单击优先级高于随机播放
-- [✔] FR-LE-005: 非 IDLE 状态时（Thinking/Tap/Talking 等）不打断，保持当前动作，不触发随机动作
+- [✔] FR-LE-005: 非 IDLE 状态时（Thinking/Tap 等）不打断，保持当前动作，不触发随机动作
 - [✔] FR-LE-005: Live2DCanvas 渲染循环中调用 state_machine.update(delta_time)
 - [✔] FR-LE-005: 状态机 update() 中每 5~8 秒随机触发 _notify(IDLE)，经优先级映射后走 MotionPriority.IDLE
 
@@ -145,11 +145,10 @@
 - [✔] 保持代码结构整洁（_has_model_files / _show_missing_model_dialog 两个独立函数）
 - [✔] 延迟导入 Qt，确保 stderr 重定向等环境准备已就绪
 - [✔] 启动画面（SplashScreen）：Live2D 模型加载期间显示，避免空白窗口
-- [✔] 启动画面包含应用图标 + 标题 + 加载文案 + 确定进度条（0~100，分阶段反馈真实加载进度）
 - [✔] Live2DCanvas.model_ready 信号：initializeGL 完成后通知 MainWindow 关闭启动画面
 - [✔] 启动画面圆角窗口居中显示、无边框、置顶、珊瑚粉主题配色
-- [✔] 进度条 ease-out 平滑动画（set_progress 设目标值，QTimer 60fps 插值，step = max(1, |diff| * 0.2)）
-- [✔] 下载进度条同步增加平滑动画（_animate_download_progress，与启动画面共用同一套 ease-out 插值逻辑）
+- [✔] 启动画面精简：移除进度条（避免 initializeGL 中 processEvents/msleep 卡住）
+  - [✔] 保留图标 + 标题 + 加载文案
 
 ---
 
@@ -211,52 +210,35 @@
 - [✔] 系统消息气泡（add_system_message）：文件上传提示移入消息列表
   - [✔] 粉色渐变背景、8pt 字体、圆角 6px、居中显示
   - [✔] 跟随消息列表正常滚动和淡出
-- [✔] 启动画面精简：移除进度条（避免 initializeGL 中 processEvents/msleep 卡住）
-  - [✔] 保留图标 + 标题 + 加载文案
 - [✔] 修复 KeyError('song_detail')：JSON 中缺失该字段的条目安全跳过
 
 ---
 
-### v0.2 —— 接入真实 AI
-- [ ] FR-AI-001: 实现真实 HTTP POST（requests，30s 超时）
-- [ ] FR-AI-001: 解析 choices[0].message.content
-- [ ] FR-AI-001: 在 `_do_reply` 中调用 provider.chat() 并显示真实回复
-- [ ] FR-CH-004: 对话历史内存级管理（最近 20 条上下文传入 history 参数）
-- [ ] FR-AI-001: API 超时/断网容错：超时提示「葵酱好像走神了...」
-- [ ] FR-AI-001: `_offline_mode` 开关：配置有效时自动切换为在线模式
+### v0.1.13 —— 高危 bug 修复
+- [✔] voice/stt_provider.py: WhisperModel 加载移入 TranscribeRunnable 工作线程（_load_model 加锁防并发重复加载），首次转录不再冻结 UI
+- [✔] voice/stt_provider.py: AudioRecorder.stop() 的 PortAudio 异常兜底；新增 abort_recording() 供退出清理
+- [✔] ai/command_router.py: /成绩 指令防御性读取（缺失字段 / None 值 / 非 dict 条目 / 非字符串歌名不再崩溃）
+- [✔] voice/model_manager.py: _on_finished 先清理状态再 emit finished，修复极端时序下的并发下载竞态
+- [✔] voice/model_manager.py: 新增 DownloadManager.shutdown() 协作式取消并等待下载线程结束（3s 超时兜底）
+- [✔] ui/main_window.py: _on_quit 退出时 shutdown 下载线程 + 调用 ChatPanel.shutdown() 停止录音流
+- [✔] ui/chat_panel.py: 新增 ChatPanel.shutdown() 清理录音相关定时器并中止录音
+- [✔] ui/main_window.py: 关于弹窗文案移除 Kimi 字样
 
-### v0.3 —— 语音输出（TTS）+ 口型同步
-- [ ] FR-VO-002: edge-tts 集成，中文女声合成
-- [ ] FR-VO-002: 音频播放 + 临时文件自动清理
-- [ ] FR-VO-002: TTS 开关（设置中可关闭）
-- [ ] FR-LE-006: 口型同步：音频 RMS 音量 → ParamMouthOpenY
-- [ ] FR-LE-006: smooth_factor = 0.3，音频结束后缓降到 0
-- [ ] FR-LE-005: 状态机扩展 TALKING 状态
-- [ ] 安装依赖：edge-tts
-- [ ] voice/base_tts.py + voice/edge_tts_provider.py
-- [ ] voice/audio_player.py：非阻塞播放 + 实时音量回调
+---
 
-### v0.4 —— 情感分析与状态机增强
-- [ ] FR-AI-003: 简易情感分析（关键词匹配 positive/neutral/negative）
-- [ ] FR-AI-003: 情感驱动状态机 Happy / Sad 状态
-- [ ] FR-AI-003: AI 回复后自动触发对应表情动作
-
-### v0.5 —— 设置窗口与配置持久化
-- [ ] FR-ST-001: 设置窗口（QTabWidget：通用 / AI / 语音 / 显示）
-- [ ] FR-ST-002: 配置持久化（~/.aoi-daemon/config.yaml）
-- [ ] FR-ST-002: Pydantic Settings 类型校验
-- [ ] FR-ST-001: 通用页：开机自启、透明度滑条、置顶开关、模型路径
-- [ ] FR-ST-001: AI 页：API Key（密码框）、Instance ID、Base URL
-- [ ] FR-ST-001: 语音页：TTS 开关、音色下拉、STT 开关
-
-### v0.6 —— 聊天历史持久化与打包
-- [ ] FR-CH-004: 聊天历史 SQLite 持久化（~/.aoi-daemon/history.db，最近 50 条）
-- [ ] FR-ST-001: 开机自启（Windows 注册表/启动文件夹、Mac launchd）
+### v0.2 —— 打包分发
 - [ ] PyInstaller 打包（Windows .exe）
 - [ ] Py2app 打包（macOS .app）
-
-- [ ] README.md（项目介绍、安装、配置、模型版权说明）
 - [ ] 打包时排除 resources/model/，README 注明需用户自行放置模型
+
+---
+
+### 已取消的方向（备忘，不再规划）
+- 接入外部 AI 聊天 API（原 v0.2）：项目定位调整为纯本地桌宠，聊天保持占位回复 + 本地斜杠指令
+- TTS 语音输出 + 口型同步（原 v0.3）
+- 情感分析 + 状态机 Happy/Sad 状态（原 v0.4）
+- 设置窗口（原 v0.5）：右键菜单 + config.json 已覆盖全部配置项
+- 聊天历史 SQLite 持久化 + 开机自启（原 v0.6 部分）：聊天为本地临时交互，无持久化需求
 
 ---
 
@@ -270,5 +252,5 @@
 - [✔] 底部消息截断：从 opacity 淡出改为 mask 硬裁剪（QRegion + setMask）
 - [✔] 顶部 fade_zone 动态化：固定 threshold + 增长的 fade_zone，替代固定 150px 方案
 - [ ] 透明窗口鼠标事件兼容性（Windows/macOS 差异待验证）
-- [ ] macOS 麦克风/辅助功能权限处理（STT 阶段需要）
-- [ ] edge-tts 异步生成器在同步代码中的封装方式待统一
+- [ ] macOS 麦克风权限处理（STT 阶段需要）
+- [ ] 下载取消竞态：run() 开头无条件重置 HFProgressBar._cancelled，极端时序下取消可能被吞（v0.1.13 已修复并发下载竞态，此为剩余边界情况）

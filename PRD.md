@@ -2,13 +2,15 @@
 
 ## 1. 项目概述
 
-桌面级 Live2D AI 伴侣应用，支持 Windows 与 macOS。透明无边框窗口悬浮桌面最上层，接 Kimi Claw API，支持打字/语音聊天，角色实时改变表情、口型和动作。
+桌面级 Live2D 伴侣应用，支持 Windows 与 macOS。透明无边框窗口悬浮桌面最上层，支持打字/语音输入聊天与本地斜杠指令交互，角色实时改变表情、口型和动作。
 
 **角色形象**：葵酱（Aoi）基于 Live2D 免费模型 haru，可通过替换模型资源自定义为其他 Live2D 角色。
 
-**核心定位**：桌面使魔/看板娘 + AI 对话伴侣 + 语音交互。
+**核心定位**：桌面使魔/看板娘 + 聊天/指令交互 + 语音输入。
 
-**技术栈**：PySide6 + live2d-py(v2) + requests + faster-whisper + sounddevice + numpy
+**技术栈**：PySide6 + live2d-py(v2) + faster-whisper + sounddevice + numpy
+
+**方向说明**：本项目为纯本地桌宠，不接入外部 AI 聊天 API，不做 TTS 语音输出与情感分析（详见第 4 节"已取消的方向"）。
 
 ---
 
@@ -67,21 +69,12 @@
 |------|-------------|---------|
 | Idle | idle_00~02 / shake_00 / pinchIn_00 / pinchOut_00 / tapBody_00~02 | 空闲时 10~15 秒随机轮播 |
 | Greeting | shake_00 | 启动时播放一次 |
-| Thinking | idle_01.mtn | 用户发送后等待 API 回复期间 |
-| Talking | idle_00.mtn | TTS 播放期间 |
-| Happy | pinchOut_00.mtn | AI 回复情感积极 |
-| Sad | pinchIn_00.mtn | AI 回复情感消极 |
+| Thinking | idle_01.mtn | 用户发送后等待回复期间 |
 | TapHead | flickHead_00.mtn | 点击头部 hit area |
 | TapBody | tapBody_00.mtn ~ tapBody_09.mtn | 点击身体 hit area |
 
-- 优先级：交互状态(Tap/Thinking/Talking) > 情感状态(Happy/Sad) > Idle
+- 优先级：交互状态(Tap/Thinking) > Idle
 - 非循环 motion 播放完自动回 Idle
-
-**FR-LE-006 口型同步**
-- TTS 播放时实时分析音频帧 RMS 音量
-- 音量 (0~1) 映射到 ParamMouthOpenY
-- 音频结束后缓降到 0（不要瞬间归零）
-- smooth_factor 配置项（默认 0.3）
 
 ### 2.3 聊天系统
 
@@ -94,7 +87,7 @@
 - 面板底部与角色底部对齐（约占窗口高度 95.5%），并向下偏移 3px 遮住一点脚部，避免遮挡角色腿部
 
 **FR-CH-002 文本输入与语音输入**
-- Enter 发送（当前使用单行 QLineEdit，Shift+Enter 换行待 v0.5 设置窗口中升级为 QTextEdit 后支持）
+- Enter 发送（当前使用单行 QLineEdit，Shift+Enter 换行待后续升级为 QTextEdit 后支持）
 - placeholder：跟葵酱说点什么吧~
 - 发送后清空输入框，触发 Thinking 状态
 - **语音按钮**：输入框左侧 🎙 按钮，长按 300ms 开始录音，松开结束
@@ -124,27 +117,14 @@
 - 下载失败友好提示（网络超时、连接失败等）
 
 **FR-CH-004 对话历史**
-- v0.1 内存级；v0.5 升级为 SQLite 持久化
+- 内存级管理，不做持久化（重启后清空）
 
-### 2.4 AI 后端
+**FR-CH-005 斜杠指令（本地路由）**
+- 识别 `/keyword args` 格式指令，本地即时回复，不经过网络
+- 当前支持 `/成绩 <歌曲名>`：读取已上传的太鼓成绩 JSON，模糊匹配 song_name / song_name_jp / subtitle
+- 非指令消息走占位回复流程
 
-**FR-AI-001 API 通信**
-- HTTP POST Kimi Claw API，请求体：
-  {"instance_id": "<ID>", "message": "...", "include_memory_context": true}
-- 提取 choices[0].message.content
-- 超时 30 秒，超时提示葵酱好像走神了...
-
-**FR-AI-002 配置管理**
-- api_key / instance_id / base_url（默认 https://api.kimi.com/v1/claw/chat）
-- 保存在 config.yaml 或 .env，API Key 密码掩码显示
-
-**FR-AI-003 情感分析**
-- 积极词：开心、太好了、哈哈、棒、喜欢、！
-- 消极词：难过、抱歉、不行、遗憾、...、唉
-- 返回 positive / neutral / negative，驱动 Happy/Sad 状态
-- 封装 sentiment.py，后续可替换为模型推理
-
-### 2.5 语音系统
+### 2.4 语音系统
 
 **FR-VO-001 语音输入 (STT)**
 - faster-whisper tiny 模型本地推理（~75MB，存放于 resources/whisper/tiny/）
@@ -156,26 +136,16 @@
 - 15 秒自动停止后备（防止 grabMouse 失效等极端情况）
 - 模型未下载时，长按语音按钮不弹窗，改为气泡提示「请去菜单栏下载语音转文字模型」
 - 模型下载中时，长按语音按钮气泡提示「当前模型下载中，请稍候再试」
+- 模型加载在后台转录线程中执行，不阻塞 UI（v0.1.13）
 
-**FR-VO-002 语音输出 (TTS)**
-- edge-tts，中文女声（zh-CN-XiaoxiaoNeural / zh-CN-XiaoyiNeural）
-- 收到 AI 回复后自动生成 MP3 到 temp 目录并播放
-- 播放后自动清理临时文件
-- 设置中可开关（默认开启）
+### 2.5 配置系统
 
-### 2.6 配置系统
+**FR-ST-001 配置持久化（已实现，v0.1.8）**
+- 路径：项目根目录 `config.json`（已加入 .gitignore）
+- 持久化项：窗口位置/尺寸（500ms 防抖保存）、角色大小、置顶、任务栏吸附、聊天开关
+- 变更即时保存，启动时按序自动恢复
 
-**FR-ST-001 设置窗口**
-- QTabWidget 标签页：通用 / AI / 语音 / 显示
-- 通用：开机自启、透明度滑条、置顶开关、模型路径选择
-- AI：API Key（密码框）、Instance ID、Base URL、情感分析开关
-- 语音：TTS 开关、音色下拉、STT 开关、模型大小选择（tiny/base/small）
-- 显示：窗口尺寸、初始位置、帧率限制（30/60 FPS）
-
-**FR-ST-002 配置持久化**
-- 路径：~/.aoi-daemon/config.yaml
-- Pydantic Settings 类型校验，变更即时生效
-- API Key 等敏感信息加密存储（至少 base64）
+**说明**：独立设置窗口不再规划——所有配置项均可通过角色右键菜单切换，`config.json` 已覆盖全部需求。
 
 ---
 
@@ -185,7 +155,7 @@
 AoiDaemon/
 ├── main.py
 ├── requirements.txt
-├── config.yaml
+├── config.json
 ├── README.md
 ├── PRD.md
 ├── TASK.md
@@ -193,13 +163,14 @@ AoiDaemon/
 ├── .gitignore
 ├── core/
 │   ├── app.py              # 应用主控制器，协调各模块
+│   ├── file_manager.py     # 用户上传文件管理器（临时存储、退出清理）
 │   ├── __init__.py
 │   └── state_machine.py    # 角色动作状态机
 ├── ui/
 │   ├── main_window.py      # 透明无边框置顶窗口/拖拽/缩放/菜单
 │   ├── live2d_canvas.py    # QOpenGLWidget + live2d-py 渲染
 │   ├── chat_panel.py       # 聊天气泡面板 + 输入框 + 语音按钮 + 下载进度
-│   ├── splash_screen.py    # 启动加载画面（模型加载期间显示，带进度反馈）
+│   ├── splash_screen.py    # 启动加载画面（模型加载期间显示）
 │   ├── tray_icon.py        # 系统托盘
 │   └── __init__.py
 ├── l2d/                    # Live2D 业务封装（避免与第三方 live2d-py 包名冲突）
@@ -207,8 +178,9 @@ AoiDaemon/
 │   └── model_wrapper.py    # LAppModel 封装 + 动作播放管理
 ├── ai/
 │   ├── __init__.py
-│   ├── base_provider.py    # AI Provider 抽象基类
-│   └── kimi_claw_provider.py
+│   ├── base_provider.py    # AI Provider 抽象基类（占位，当前未接入真实 AI）
+│   ├── command_router.py   # 斜杠指令本地路由（/成绩 等）
+│   └── kimi_claw_provider.py  # Kimi Claw API 占位封装（已取消接入，代码保留备查）
 ├── voice/
 │   ├── __init__.py
 │   ├── model_manager.py    # 模型注册表 + 下载管理器（后台下载、进度跟踪）
@@ -276,11 +248,8 @@ AoiDaemon/
 ### v0.1.7 —— 启动加载画面 + 模型缺失优雅降级
 - 启动画面（SplashScreen）：Live2D 模型加载期间显示，避免用户面对空白窗口
   - 珊瑚粉主题配色，圆角窗口（QBitmap + QPainterPath + setMask）
-  - 显示应用图标 + 「葵之使魔」标题 + 加载文案 + 确定进度条（0~100）
-  - Live2DCanvas 通过 `loading_progress` 信号分阶段反馈真实进度
-  - 进度条 ease-out 平滑插值动画（QTimer 60fps，step = max(1, |diff| * 0.2)）
-  - 下载进度条同步增加平滑动画，与启动画面共用同一套插值逻辑
-  - 模型加载完成后 `model_ready` 信号自动关闭启动画面
+  - 显示应用图标 + 「葵之使魔」标题 + 加载文案
+  - Live2DCanvas 通过 `model_ready` 信号自动关闭启动画面
 - 模型缺失优雅降级：
   - main.py 启动前置检查 `resources/model/**/*.model.json`
   - 缺失时弹出 QMessageBox（标题「资源文件缺失」），提示按 README「配置 Live2D 模型」放置文件
@@ -333,10 +302,10 @@ AoiDaemon/
 - `ui/main_window.py`：连接 `file_uploaded` 信号，收到文件后显示系统提示
 
 **斜杠指令本地路由**
-- 新增 `ai/command_router.py`：本地指令路由器，不经过 LLM
+- 新增 `ai/command_router.py`：本地指令路由器，不经过网络
   - 识别 `/keyword args` 格式指令
   - 当前支持 `/成绩 <歌曲名>`：读取太鼓成绩 JSON，模糊匹配 song_name / song_name_jp / subtitle
-  - 非指令消息返回 None，走原有 AI 聊天流程
+  - 非指令消息返回 None，走原有占位回复流程
 - `ui/main_window.py`：`_on_user_message` 优先尝试指令路由，命中则本地即时回复
 
 **太鼓成绩查询格式化（多次迭代）**
@@ -360,65 +329,30 @@ AoiDaemon/
 - 移除进度条（加载过快无视觉效果，且 processEvents/msleep 导致 OpenGL 卡住）
 - 保留图标 + 标题 + 「葵酱正在梳妆打扮，请稍候~」文案
 
-### v0.2 —— 接入真实 AI
-- 接入 Kimi Claw API 真实 HTTP 请求（替换占位模式）
-- 对话历史内存级管理（最近 20 条上下文）
-- API 超时/断网容错处理
+### v0.1.13 —— 高危 bug 修复
+- 首次语音转录不再阻塞 UI：WhisperModel 加载移入转录工作线程（`TranscribeRunnable`），加锁防并发重复加载；加载失败时正常回填提示，打字指示器不再卡死
+- `/成绩` 指令防御性读取用户 JSON：缺失字段、None 值、非 dict 条目、非字符串歌名均不再导致指令处理崩溃
+- 退出路径安全：退出时通过 `DownloadManager.shutdown()` 协作式取消并等待下载线程结束（3s 超时兜底）；`ChatPanel.shutdown()` 停止进行中的录音流与相关定时器
+- 修复下载完成竞态：`_on_finished` 先清理管理器状态再通知 UI，避免极端时序下允许第二个并发下载、互相污染进度/互删目录
 
-### v0.3 —— 语音输出（TTS）+ 口型同步
-- edge-tts 集成，中文女声合成
-- 音频播放 + 临时文件自动清理
-- TTS 开关（设置中可关闭）
-- 口型同步：音频 RMS 音量 → ParamMouthOpenY
+### v0.2 —— 打包分发
+- PyInstaller 打包（Windows .exe）
+- Py2app 打包（macOS .app）
+- 打包时排除 resources/model/，README 注明需用户自行放置模型
 
-### v0.4 —— 情感分析与状态机增强
-- 简易情感分析（关键词匹配 positive/neutral/negative）
-- 情感驱动状态机 Happy / Sad 状态
-- AI 回复后自动触发对应表情动作
-
-### v0.5 —— 设置窗口与配置持久化
-- 设置窗口（QTabWidget：通用 / AI / 语音 / 显示）
-- 配置持久化（~/.aoi-daemon/config.yaml）
-- API Key / Instance ID / Base URL 可配置
-- 语音页：TTS 开关、STT 开关、音色选择
-
-### v0.6 —— 聊天历史持久化与打包
-- 聊天历史 SQLite 持久化（~/.aoi-daemon/history.db，最近 50 条）
-- 开机自启（Windows 注册表 / Mac launchd）
-- PyInstaller（Windows）、Py2app（macOS）打包
+### 已取消的方向（备忘，不再规划）
+- **接入外部 AI 聊天 API**（原 v0.2）：项目定位调整为纯本地桌宠，聊天保持占位回复 + 本地斜杠指令
+- **TTS 语音输出 + 口型同步**（原 v0.3）
+- **情感分析 + 状态机 Happy/Sad 状态**（原 v0.4）
+- **设置窗口**（原 v0.5）：右键菜单 + `config.json` 已覆盖全部配置项，无独立设置窗口需求
+- **聊天历史 SQLite 持久化 + 开机自启**（原 v0.6 部分）：聊天为本地临时交互，重启清空即可；不做开机自启
 
 ---
 
-## 5. 接口定义（供 Kimi Code 直接实现）
+## 5. 接口定义
 
 ```python
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-
-@dataclass
-class ChatResponse:
-    text: str
-    sentiment: str  # "positive" | "neutral" | "negative"
-
-class BaseAIProvider(ABC):
-    @abstractmethod
-    def chat(self, message: str, history: list[dict]) -> ChatResponse:
-        """Send message, return AI reply text with sentiment tag"""
-        pass
-    @abstractmethod
-    def validate_config(self) -> bool:
-        """Validate current config is usable"""
-        pass
-
-class BaseTTSProvider(ABC):
-    @abstractmethod
-    def synthesize(self, text: str, output_path: str) -> None:
-        """Synthesize text to audio file saved at output_path"""
-        pass
-    @abstractmethod
-    def get_voices(self) -> list[dict]:
-        """Return available voice list"""
-        pass
 
 class BaseSTTProvider(ABC):
     @abstractmethod
@@ -455,6 +389,5 @@ class Live2DModelWrapper:
 13. **顶部透明化区域动态增长**：固定 fade_zone = 150px 会导致面板较矮时过早淡出。解决方案：使用固定 threshold = max_available_h - _FADE_ZONE，fade_zone = min(total_msg_h - threshold, _FADE_ZONE)，从 0 逐渐增长到 150px。
 14. **底部截断不要用 opacity**：用 `opacity = 0` 截断底部消息会导致气泡物理区域仍覆盖输入框（鼠标事件被拦截）。解决方案：使用 `QRegion` + `setMask()` 硬裁剪，同时配合 `raise_()` 确保输入框在气泡之上。
 15. **输入框 z-order 管理**：新消息加入时 Qt 可能将其置于输入框之上。解决方案：在 `add_message()` 和 `show_typing_indicator()` 中调用 `self._input_frame.raise_()`。
-16. **API Key 安全**：不要硬编码，使用环境变量或本地加密配置文件。开源前检查 .gitignore 排除 config.yaml 和 .env。
-17. **Live2D 模型版权**：开源仓库不放完整模型。本项目演示使用的 haru 模型来源于 hexo-helper-live2d 项目，版权归属 Live2D Inc.。README 需注明模型文件需用户自行提供。
-18. **macOS 权限**：首次运行可能需授予麦克风权限（STT）和辅助功能权限（开机自启）。
+16. **Live2D 模型版权**：开源仓库不放完整模型。本项目演示使用的 haru 模型来源于 hexo-helper-live2d 项目，版权归属 Live2D Inc.。README 需注明模型文件需用户自行提供。
+17. **macOS 权限**：首次运行可能需授予麦克风权限（STT）。

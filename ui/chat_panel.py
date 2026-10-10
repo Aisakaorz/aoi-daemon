@@ -915,6 +915,15 @@ class ChatPanel(QWidget):
             self._volume_timer = None
         self._voice_btn.set_volume(0.0)
 
+    def shutdown(self) -> None:
+        """应用退出前清理：停止进行中的录音与相关定时器（不触发转录）"""
+        if hasattr(self, "_auto_stop_timer") and self._auto_stop_timer is not None:
+            self._auto_stop_timer.stop()
+            self._auto_stop_timer = None
+        self._stop_voice_volume_timer()
+        if self._stt:
+            self._stt.abort_recording()
+
     def _on_transcribe_done(self, text: str) -> None:
         """转录完成回调（在主线程执行）"""
         logger.debug(f"_on_transcribe_done 被调用，text={'有内容' if text else '空'}")

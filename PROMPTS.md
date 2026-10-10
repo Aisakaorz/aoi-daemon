@@ -23,11 +23,11 @@
 5. 实现点击反馈（Head→flickHead / Body→tapBody），附带 snd/ 音效播放
 6. 实现 core/state_machine.py（Idle/Greeting/Thinking/TapHead/TapBody，优先级管理）
 7. 实现 ui/chat_panel.py（气泡组件、输入框、打字指示器）
-8. 实现 ai/kimi_claw_provider.py（API 占位符，直接 echo 用户输入）
+8. 实现 ai/command_router.py（斜杠指令本地路由框架）
 9. 实现系统托盘 + 右键菜单（任务栏与角色右键共用同一份菜单：显示/隐藏葵酱、聊天开关、置顶、角色大小、关于、退出）
 10. 所有代码中文注释，异常处理完善（特别是 live2d 初始化和模型加载失败）
-11. 生成 requirements.txt（PySide6, live2d-py, requests）
-12. 不要生成 v0.2 及以后的代码
+11. 生成 requirements.txt（PySide6, live2d-py, faster-whisper, sounddevice）
+12. 不要生成路线图以外的功能
 
 特别注意：
 - 模型是 Cubism 2.x 格式，使用 import live2d.v2 as live2d
@@ -47,12 +47,12 @@
 
 ---
 
-## 【版本迭代】开发 v0.2 ~ v0.x
+## 【版本迭代】开发后续版本
 
 ```
 请读取当前目录下的 TASK.md 和 PRD.md。
 
-v0.1 及 v0.1.x（含 v0.1.3 任务栏吸附）已完成，代码可运行。现在继续实现 [v0.2 / v0.3 / v0.4 / v0.5 / v0.6]，具体任务见 TASK.md 对应章节。
+v0.1 及 v0.1.x 已完成，代码可运行。现在继续实现 [版本号]，具体任务见 TASK.md 对应章节。
 
 要求：
 1. 严格按 TASK.md 中的任务清单逐项实现
@@ -63,7 +63,7 @@ v0.1 及 v0.1.x（含 v0.1.3 任务栏吸附）已完成，代码可运行。现
 6. 完成后更新 TASK.md，将该版本任务标记为 [✔]
 
 约束：
-- 异步逻辑（网络/TTS/STT）使用 QThread，不阻塞主线程
+- 异步逻辑（模型下载/STT）使用 QThread，不阻塞主线程
 - 新模块放到对应目录下，别忘了 __init__.py
 - 参考 PRD 第 6 节踩坑提示处理平台差异
 ```

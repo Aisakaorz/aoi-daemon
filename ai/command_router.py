@@ -84,6 +84,8 @@ class CommandRouter:
         matched_items = []
 
         for item in data:
+            if not isinstance(item, dict):
+                continue
             detail = item.get("song_detail")
             if not detail:
                 continue
@@ -95,6 +97,7 @@ class CommandRouter:
             for name in names:
                 if not name:
                     continue
+                name = str(name)
                 sim = _similarity(song_query_lower, name)
                 if sim >= 0.5 or song_query_lower in name.lower():
                     matched_items.append((sim, item))
@@ -120,8 +123,9 @@ class CommandRouter:
             level = item.get("level")
             if level not in (4, 5):
                 continue
-            # 同一难度保留最高分记录
-            if level not in records or item["high_score"] > records[level]["high_score"]:
+            # 同一难度保留最高分记录（用户数据可能缺 high_score 字段，按 0 处理）
+            score = item.get("high_score") or 0
+            if level not in records or score > (records[level].get("high_score") or 0):
                 records[level] = item
 
         detail = song_items[0][1].get("song_detail", {})
@@ -159,11 +163,13 @@ class CommandRouter:
         else:
             level_name = "魔王(裏)"
 
-        rank_num = item.get("best_score_rank", 1)
+        rank_num = item.get("best_score_rank")
+        if not isinstance(rank_num, int):
+            rank_num = 1
         rank_name = _RANK_NAMES.get(rank_num, f"段位{rank_num}")
 
         # history 解析：[游玩, 通关, 全连, 全良]
-        history = item.get("history", [])
+        history = item.get("history") or []
         if len(history) >= 4:
             play_count, clear_count, fc_count, ap_count = history[0], history[1], history[2], history[3]
         elif len(history) >= 2:
@@ -175,7 +181,7 @@ class CommandRouter:
 
         lines = [
             f"🎚️  难度：{level_name}({level_value}星)",
-            f"🏆 得分：{item['high_score']}",
+            f"🏆 得分：{item.get('high_score') or 0}",
             f"🥇 评价：{rank_name}",
         ]
 
@@ -188,7 +194,7 @@ class CommandRouter:
         if ap_count > 0:
             lines.append(f"🔥  全良次数：{ap_count}次")
 
-        date = item.get("highscore_datetime", "未知")[:10]
+        date = str(item.get("highscore_datetime") or "未知")[:10]
         lines.append(f"📅 最佳记录：{date}")
 
         return lines
