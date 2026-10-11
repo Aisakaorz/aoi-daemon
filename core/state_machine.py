@@ -16,23 +16,19 @@ class CharacterState(Enum):
     """角色状态枚举"""
     IDLE = auto()       # 空闲
     GREETING = auto()   # 打招呼（启动时）
-    THINKING = auto()   # 思考（等待 API 回复）
-    TALKING = auto()    # 说话（TTS 播放中）
+    THINKING = auto()   # 思考（等待回复）
     TAP_HEAD = auto()   # 被摸头
     TAP_BODY = auto()   # 被点击身体
-    HAPPY = auto()      # 积极情感
-    SAD = auto()        # 消极情感
 
 
 class StateMachine:
     """
     Live2D 角色状态机
-    - 优先级：交互(Tap/Thinking/Talking) > 情感(Happy/Sad) > Idle
+    - 优先级：交互(Tap/Thinking) > Greeting > Idle
     - 非循环 motion 播放完毕后自动回到 Idle
     """
 
     # 各状态对应的动作文件映射（MotionGroup -> motion_no）
-    # Phase 1 仅实现基础状态，Phase 2 扩展 Talking 等
     _STATE_MOTIONS: dict[CharacterState, list[tuple[str, int]]] = {
         # 空闲时轮播：idle 微表情 + shake 摇头 + pinch 捏脸 + tap_body 身体互动
         # 动作丰富度：从细微表情到大幅度动作，避免单调
@@ -48,20 +44,11 @@ class StateMachine:
         CharacterState.THINKING: [
             ("idle", 1),
         ],
-        CharacterState.TALKING: [
-            ("idle", 0),
-        ],
         CharacterState.TAP_HEAD: [
             ("flick_head", 0),
         ],
         CharacterState.TAP_BODY: [
             ("tap_body", 0), ("tap_body", 1), ("tap_body", 2),
-        ],
-        CharacterState.HAPPY: [
-            ("pinch_out", 0),
-        ],
-        CharacterState.SAD: [
-            ("pinch_in", 0),
         ],
     }
 
@@ -70,9 +57,6 @@ class StateMachine:
         CharacterState.TAP_HEAD: 30,
         CharacterState.TAP_BODY: 30,
         CharacterState.THINKING: 20,
-        CharacterState.TALKING: 20,
-        CharacterState.HAPPY: 15,
-        CharacterState.SAD: 15,
         CharacterState.GREETING: 10,
         CharacterState.IDLE: 5,
     }

@@ -372,9 +372,9 @@ class ChatPanel(QWidget):
         from PySide6.QtWidgets import QFileDialog
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "选择要上传的成绩文件",
+            "选择要上传的文件",
             "",
-            "JSON 文件 (*.json);;所有文件 (*.*)",
+            "所有文件 (*.*)",
         )
         if path:
             self.file_uploaded.emit(path)

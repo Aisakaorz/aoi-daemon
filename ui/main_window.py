@@ -22,7 +22,6 @@ from ui.tray_icon import TrayIcon
 from l2d.model_wrapper import Live2DModelWrapper
 from core.state_machine import StateMachine, CharacterState
 from core.file_manager import FileManager
-from ai.command_router import CommandRouter
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -85,9 +84,8 @@ class MainWindow(QMainWindow):
         self._save_geometry_timer.setSingleShot(True)
         self._save_geometry_timer.timeout.connect(self._save_window_geometry)
 
-        # 文件管理与指令路由
+        # 文件管理（上传文件临时暂存，退出时清理）
         self._file_mgr = FileManager()
-        self._cmd_router = CommandRouter(self._file_mgr)
 
         # 连接文件上传信号
         self._chat.file_uploaded.connect(self._on_file_uploaded)
@@ -604,41 +602,18 @@ class MainWindow(QMainWindow):
             self._chat._input.setFocus()
 
     def _on_file_uploaded(self, path: str) -> None:
-        """用户通过 📎 上传文件"""
+        """用户通过 📎 上传文件（临时暂存，退出时自动清理）"""
         dst = self._file_mgr.save_upload(path)
         filename = dst.name
         self._chat.add_system_message(f"📎 已收到文件 {filename}")
-        self._chat.add_message(
-            "葵酱：可以输入指令查询成绩啦~\n"
-            "试试：/成绩 <歌曲名>",
-            is_user=False,
-        )
         logger.info(f"用户上传文件: {filename}")
 
     def _on_user_message(self, text: str) -> None:
-        """
-        用户发送消息后的处理
-        先尝试斜杠指令路由，非指令再走 AI 回复流程
-        """
+        """用户发送消息后的处理（当前为本地占位回复流程）"""
         logger.info(f"用户消息: {text}")
-
-        # 1. 先尝试斜杠指令（本地处理）
-        cmd_reply = self._cmd_router.handle(text)
-        if cmd_reply is not None:
-            self._chat.show_typing_indicator()
-            QTimer.singleShot(600, lambda: self._show_reply(cmd_reply))
-            return
-
-        # 2. 非指令，走 AI 回复流程
         self._state.force_transit(CharacterState.THINKING)
         self._chat.show_typing_indicator()
         QTimer.singleShot(2000, lambda: self._do_ai_reply(text))
-
-    def _show_reply(self, text: str) -> None:
-        """显示指令回复（不经过 AI）"""
-        self._chat.hide_typing_indicator()
-        self._chat.add_message(text, is_user=False)
-        # 指令回复不改变角色状态，保持 IDLE
 
     def _do_ai_reply(self, text: str) -> None:
         """执行 AI 回复（Phase 1 测试：直接 echo 用户消息）"""
