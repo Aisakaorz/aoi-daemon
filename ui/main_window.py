@@ -550,6 +550,8 @@ class MainWindow(QMainWindow):
                 # 若开启了吸附，在正确位置基础上再次吸附
                 if self._action_snap.isChecked():
                     self._snap_to_taskbar()
+            # 布局此时已激活，重算聊天面板高度，消除初始化期按过期父高度钳制的问题
+            self._chat.refresh_panel_height()
         QTimer.singleShot(50, self._move_chat_to_bottom)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:

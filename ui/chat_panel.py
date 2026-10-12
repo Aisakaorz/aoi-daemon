@@ -666,9 +666,15 @@ class ChatPanel(QWidget):
     def _get_max_panel_height(self) -> int:
         """根据父窗口高度动态计算面板最大高度"""
         parent = self.parentWidget()
-        if parent:
+        # 窗口首次显示前布局尚未激活，parent 高度可能是过期的小值（实测 30px），
+        # 此时按比例钳制会把面板高度永久压死（如 19px，输入框被截断），退回固定上限
+        if parent and parent.height() > 50:
             return int(parent.height() * self._max_height_ratio)
         return _MAX_PANEL_HEIGHT
+
+    def refresh_panel_height(self) -> None:
+        """供主窗口在窗口首次显示后调用：此时布局已激活，重算高度消除初始化期的过期钳制"""
+        self._adjust_height()
 
     def show_typing_indicator(self) -> None:
         """显示 AI 正在输入的指示器（三个跳动小点）"""

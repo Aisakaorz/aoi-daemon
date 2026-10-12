@@ -246,6 +246,14 @@
 
 ---
 
+### v0.1.16 —— 修复非中档尺寸启动时聊天面板被截断
+- [✔] ui/chat_panel.py: 修复 `_get_max_panel_height` 在窗口首次显示前按未激活布局的过期父高度（实测 30px）钳制面板高度，导致小/大尺寸恢复时面板被永久压成 19px、输入框截断；父高度异常（≤50px）时退回固定上限 _MAX_PANEL_HEIGHT
+- [✔] ui/chat_panel.py: 新增公开方法 `refresh_panel_height()`（重算面板高度）
+- [✔] ui/main_window.py: showEvent 首次显示（布局已激活）时调用 `refresh_panel_height()`，彻底消除初始化期的过期高度
+- [✔] 三档尺寸（小/中/大）启动恢复路径实测：面板高度统一 48px，输入框完整显示，底部与角色底部对齐
+
+---
+
 ### v0.2 —— 打包分发
 - [ ] PyInstaller 打包（Windows .exe）
 - [ ] Py2app 打包（macOS .app）
