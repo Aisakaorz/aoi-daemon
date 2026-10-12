@@ -8,6 +8,7 @@ import os
 
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QSurfaceFormat
 
 from l2d.model_wrapper import Live2DModelWrapper
 from core.state_machine import StateMachine
@@ -51,14 +52,27 @@ class AoiDaemonApp:
             os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
             logger.info("Windows 平台：启用高 DPI 缩放")
 
+    def _setup_surface_format(self) -> None:
+        """
+        设置默认 OpenGL 表面格式（必须在 QApplication 创建前调用）
+        - 4x MSAA 多重采样：平滑模型网格几何边缘的锯齿
+        - Alpha 缓冲：配合窗口透明背景
+        """
+        fmt = QSurfaceFormat()
+        fmt.setSamples(4)
+        fmt.setAlphaBufferSize(8)
+        QSurfaceFormat.setDefaultFormat(fmt)
+        logger.info("OpenGL 表面格式已设置：4x MSAA + Alpha8")
+
     def run(self) -> int:
         """
         启动应用主循环
         :return: 进程退出码
         """
         try:
-            # 1. 平台设置
+            # 1. 平台设置与 OpenGL 表面格式（须在创建 QApplication 之前）
             self._setup_platform()
+            self._setup_surface_format()
 
             # 2. 创建 Qt 应用
             # 注意：QApplication 接受命令行参数
@@ -75,7 +89,7 @@ class AoiDaemonApp:
             self._model = Live2DModelWrapper()
             self._state = StateMachine()
 
-            # 5. 创建主窗口（传入启动画面，模型加载完成后自动关闭）
+            # 4. 创建主窗口（传入启动画面，模型加载完成后自动关闭）
             self._window = MainWindow(self._model, self._state, splash_screen=splash)
             self._window.show()
 

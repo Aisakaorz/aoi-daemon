@@ -235,6 +235,17 @@
 
 ---
 
+### v0.1.15 —— 渲染画质优化（消除模型锯齿）
+- [✔] ui/live2d_canvas.py: 纹理采样 NEAREST → LINEAR（CLAMP_TO_EDGE 保留，接缝线由 CLAMP 解决与采样方式无关），显著减轻模型像素锯齿
+- [✔] ui/live2d_canvas.py: resizeGL 视口按 devicePixelRatio 换算物理像素，修复高 DPI 屏下渲染结果被拉伸放大导致的模糊/锯齿（实测 dpr=1.25 下绘制后视口 500x750，与 FBO 1:1 对齐，MSAA 生效）
+- [✔] ui/live2d_canvas.py: model.Resize 同步传物理像素，保证库内部（如遮罩裁剪）恢复视口时与实际视口一致；新增首帧 GL 诊断日志（dpr/视口/MSAA 采样数，排查渲染问题时用）
+- [✔] ui/live2d_canvas.py: 新增 2x 超采样渲染（SSAA_SCALE=2）：模型渲染到 2 倍物理分辨率离屏纹理后线性降采样，消除细微移动时的边缘闪烁；FBO 创建失败自动回退直接渲染，常量改为 1 可关闭
+- [✔] ui/live2d_canvas.py: 降采样 quad 改用语着色器 + VAO 绘制（固定管线在核心上下文静默无效），并修复两个 GL 状态污染问题：绘制前显式切回纹理单元 0（live2d 遮罩采样后 active unit 停在 1）、强制关闭面剔除（live2d 遗留 GL_CULL_FACE + GL_CW，CCW quad 被整体剔除）；着色器失败回退固定管线
+- [✔] ui/live2d_canvas.py: 处理 DevicePixelRatioChange 事件（跨屏拖动等 DPR 变化场景自动重绘并重建渲染目标），适配不同缩放比例与多显示器环境
+- [✔] core/app.py: 新增 _setup_surface_format()，在 QApplication 创建前设置默认 OpenGL 格式（4x MSAA + Alpha8），平滑模型网格几何边缘
+
+---
+
 ### v0.2 —— 打包分发
 - [ ] PyInstaller 打包（Windows .exe）
 - [ ] Py2app 打包（macOS .app）

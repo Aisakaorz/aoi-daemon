@@ -10,7 +10,7 @@ import random
 from typing import Optional, Callable
 
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
-from PySide6.QtCore import Qt, QTimer, QPoint, Signal
+from PySide6.QtCore import Qt, QTimer, QPoint, Signal, QEvent
 from PySide6.QtGui import QMouseEvent
 
 from l2d.model_wrapper import Live2DModelWrapper
@@ -18,6 +18,25 @@ from core.state_machine import StateMachine, CharacterState
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# 降采样全屏四边形着色器（核心上下文可用；失败时回退固定管线）
+_QUAD_VS = """#version 330 core
+layout(location = 0) in vec2 a_pos;
+layout(location = 1) in vec2 a_uv;
+out vec2 v_uv;
+void main() {
+    v_uv = a_uv;
+    gl_Position = vec4(a_pos, 0.0, 1.0);
+}
+"""
+_QUAD_FS = """#version 330 core
+in vec2 v_uv;
+out vec4 frag_color;
+uniform sampler2D u_texture;
+void main() {
+    frag_color = texture(u_texture, v_uv);
+}
+"""
 
 
 class Live2DCanvas(QOpenGLWidget):
@@ -34,6 +53,11 @@ class Live2DCanvas(QOpenGLWidget):
     model_ready = Signal()
     # 加载进度信号（0~100，用于更新启动画面进度条）
     loading_progress = Signal(int)
+
+    # 渲染超采样倍数：1 = 关闭（直接渲染），2 = 按物理分辨率 2 倍渲染后线性降采样
+    # 显著改善边缘锯齿与细微移动时的闪烁；模型为轻量 2D 绘制，对性能影响很小
+    # 低配机器如遇性能问题可改为 1；FBO 创建失败时自动回退直接渲染
+    SSAA_SCALE = 2
 
     def __init__(
         self,
@@ -77,6 +101,17 @@ class Live2DCanvas(QOpenGLWidget):
         # 点击音效（Phase 1 可选播放）
         self._sound_enabled = True
         self._sound_players: list = []  # 持有播放器引用防止被回收
+
+        # 超采样离屏渲染目标（lazy 创建，物理尺寸变化时按新尺寸重建）
+        self._ssaa_fbo = None
+        self._ssaa_tex = None
+        self._ssaa_w = 0
+        self._ssaa_h = 0
+
+        # 降采样 quad 着色器资源（lazy 创建）
+        self._quad_prog = None
+        self._quad_vao = 0
+        self._quad_vbo = 0
 
         # 定时器：每 30ms 更新一次鼠标悬停状态（响应更快，避免上下区域穿透延迟）
         self._hover_timer = QTimer(self)
@@ -132,10 +167,11 @@ class Live2DCanvas(QOpenGLWidget):
                     gl.glBindTexture(gl.GL_TEXTURE_2D, tex_id)
                     gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE)
                     gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE)
-                    # 放大/缩小均使用 NEAREST：彻底消除 texture atlas 内部边界采样导致的细线
-                    gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
-                    gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
-            logger.info(f"已设置 {len([t for t in textures if t is not None])} 个纹理的 CLAMP_TO_EDGE + NEAREST")
+                    # 放大/缩小使用 LINEAR 线性采样：平滑纹理，消除模型像素锯齿
+                    # （接缝线由 CLAMP_TO_EDGE 解决，与采样过滤方式无关）
+                    gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
+                    gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
+            logger.info(f"已设置 {len([t for t in textures if t is not None])} 个纹理的 CLAMP_TO_EDGE + LINEAR")
         except Exception as e:
             logger.debug(f"纹理参数设置失败: {e}")
 
@@ -145,6 +181,8 @@ class Live2DCanvas(QOpenGLWidget):
     def paintGL(self) -> None:
         """
         每帧渲染
+        超采样（SSAA_SCALE > 1）时：模型渲染到物理分辨率 SSAA 倍的离屏纹理，
+        再线性降采样回默认帧缓冲，改善边缘锯齿与细微移动时的闪烁
         """
         try:
             import OpenGL.GL as gl
@@ -152,29 +190,217 @@ class Live2DCanvas(QOpenGLWidget):
             # 禁用 depth test，避免模型部件间出现深度裁剪
             gl.glDisable(gl.GL_DEPTH_TEST)
 
-            # 清屏（完全透明）
-            gl.glClearColor(0.0, 0.0, 0.0, 0.0)
-            gl.glClear(gl.GL_COLOR_BUFFER_BIT)
+            dpr = self.devicePixelRatio()
+            pw = max(1, int(self.width() * dpr))
+            ph = max(1, int(self.height() * dpr))
 
-            if self._model.is_initialized:
-                # 先更新模型动画
-                self._model.update(1.0 / 60.0)
-                # 再覆盖参数（视线、呼吸）
-                self._update_model_params()
-                # 状态机更新（空闲时自动轮播 idle 动作，不播放声音）
-                self._state.update(1.0 / 60.0)
-                # 绘制
-                self._model.draw()
+            fbo, fw, fh = self._ensure_ssaa_target(gl, pw, ph)
+
+            if fbo is not None and self._model.is_initialized:
+                # 1. 渲染到 SSAA 倍物理分辨率的超采样纹理
+                gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, fbo)
+                gl.glViewport(0, 0, fw, fh)
+                gl.glClearColor(0.0, 0.0, 0.0, 0.0)
+                gl.glClear(gl.GL_COLOR_BUFFER_BIT)
+                self._draw_model()
+
+                # 2. 线性降采样到 Qt 帧缓冲（预乘 alpha 合成，避免边缘暗晕）
+                gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, self.defaultFramebufferObject())
+                gl.glViewport(0, 0, pw, ph)
+                gl.glClearColor(0.0, 0.0, 0.0, 0.0)
+                gl.glClear(gl.GL_COLOR_BUFFER_BIT)
+                self._blit_downsample(gl)
+            else:
+                # 回退：直接渲染（超采样关闭或 FBO 创建失败）
+                gl.glViewport(0, 0, pw, ph)
+                gl.glClearColor(0.0, 0.0, 0.0, 0.0)
+                gl.glClear(gl.GL_COLOR_BUFFER_BIT)
+                self._draw_model()
+
+            self._log_gl_diagnostics_once(gl)
 
         except Exception as e:
             logger.warning(f"paintGL 异常: {e}")
 
+    def event(self, event) -> bool:
+        # 跨屏拖动等导致 DPR 变化：触发重绘，paintGL 会按新物理尺寸重建超采样目标
+        if event.type() == QEvent.Type.DevicePixelRatioChange:
+            self.update()
+        return super().event(event)
+
+    def _draw_model(self) -> None:
+        """更新并绘制模型（视口与帧缓冲由调用方准备）"""
+        if not self._model.is_initialized:
+            return
+        # 先更新模型动画
+        self._model.update(1.0 / 60.0)
+        # 再覆盖参数（视线、呼吸）
+        self._update_model_params()
+        # 状态机更新（空闲时自动轮播 idle 动作，不播放声音）
+        self._state.update(1.0 / 60.0)
+        # 绘制
+        self._model.draw()
+
+    def _ensure_ssaa_target(self, gl, pw: int, ph: int):
+        """
+        获取（必要时创建或调整）超采样离屏渲染目标
+        :return: (fbo_id, 纹理宽, 纹理高)；超采样关闭或创建失败返回 (None, 0, 0)
+        """
+        if self.SSAA_SCALE <= 1:
+            return None, 0, 0
+        fw, fh = pw * self.SSAA_SCALE, ph * self.SSAA_SCALE
+        try:
+            if self._ssaa_fbo is not None and (self._ssaa_w, self._ssaa_h) == (fw, fh):
+                return self._ssaa_fbo, fw, fh
+            if self._ssaa_fbo is None:
+                self._ssaa_tex = gl.glGenTextures(1)
+                self._ssaa_fbo = gl.glGenFramebuffers(1)
+            gl.glBindTexture(gl.GL_TEXTURE_2D, self._ssaa_tex)
+            gl.glTexImage2D(gl.GL_TEXTURE_2D, 0, gl.GL_RGBA, fw, fh, 0,
+                            gl.GL_RGBA, gl.GL_UNSIGNED_BYTE, None)
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_LINEAR)
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_LINEAR)
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE)
+            gl.glTexParameteri(gl.GL_TEXTURE_2D, gl.GL_TEXTURE_WRAP_T, gl.GL_CLAMP_TO_EDGE)
+            gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, self._ssaa_fbo)
+            gl.glFramebufferTexture2D(gl.GL_FRAMEBUFFER, gl.GL_COLOR_ATTACHMENT0,
+                                      gl.GL_TEXTURE_2D, self._ssaa_tex, 0)
+            status = gl.glCheckFramebufferStatus(gl.GL_FRAMEBUFFER)
+            if status != gl.GL_FRAMEBUFFER_COMPLETE:
+                raise RuntimeError(f"FBO 状态异常: 0x{status:x}")
+            self._ssaa_w, self._ssaa_h = fw, fh
+            return self._ssaa_fbo, fw, fh
+        except Exception as e:
+            logger.warning(f"超采样 FBO 创建失败，回退直接渲染: {e}")
+            self._ssaa_fbo = None
+            return None, 0, 0
+
+    def _blit_downsample(self, gl) -> None:
+        """把超采样纹理线性降采样绘制到当前帧缓冲"""
+        # live2d 绘制后 active 纹理单元可能停在 unit1（遮罩采样），显式切回 unit0
+        prev_unit = gl.glGetIntegerv(gl.GL_ACTIVE_TEXTURE)
+        gl.glActiveTexture(gl.GL_TEXTURE0)
+        gl.glBindTexture(gl.GL_TEXTURE_2D, self._ssaa_tex)
+        gl.glEnable(gl.GL_BLEND)
+        # 模型在 FBO 中的混合结果实际为预乘 alpha，用预乘方式合成避免边缘暗晕
+        gl.glBlendFunc(gl.GL_ONE, gl.GL_ONE_MINUS_SRC_ALPHA)
+        # live2d 绘制后可能遗留 GL_CULL_FACE + GL_CW 正面状态，
+        # quad 为 CCW 绕序会被整体背面剔除，必须先关闭面剔除
+        gl.glDisable(gl.GL_CULL_FACE)
+        try:
+            self._draw_quad_shader(gl)
+        except Exception as e:
+            logger.warning(f"quad 着色器路径失败，回退固定管线: {e}")
+            self._draw_quad_fixed(gl)
+        gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
+        gl.glDisable(gl.GL_BLEND)
+        gl.glActiveTexture(prev_unit)
+
+    def _draw_quad_shader(self, gl) -> None:
+        """着色器 + VAO 绘制全屏 quad（核心/现代上下文）"""
+        prog = self._ensure_quad_program(gl)
+        gl.glUseProgram(prog)
+        gl.glBindVertexArray(self._quad_vao)
+        gl.glDrawArrays(gl.GL_TRIANGLES, 0, 6)
+        gl.glBindVertexArray(0)
+        gl.glUseProgram(0)
+
+    def _ensure_quad_program(self, gl):
+        """编译/链接降采样 quad 着色器并创建 VAO/VBO（惰性，只执行一次）"""
+        if self._quad_prog is not None:
+            return self._quad_prog
+        vs = gl.glCreateShader(gl.GL_VERTEX_SHADER)
+        gl.glShaderSource(vs, _QUAD_VS)
+        gl.glCompileShader(vs)
+        if not gl.glGetShaderiv(vs, gl.GL_COMPILE_STATUS):
+            raise RuntimeError(f"quad 顶点着色器编译失败: {gl.glGetShaderInfoLog(vs)}")
+        fs = gl.glCreateShader(gl.GL_FRAGMENT_SHADER)
+        gl.glShaderSource(fs, _QUAD_FS)
+        gl.glCompileShader(fs)
+        if not gl.glGetShaderiv(fs, gl.GL_COMPILE_STATUS):
+            raise RuntimeError(f"quad 片元着色器编译失败: {gl.glGetShaderInfoLog(fs)}")
+        prog = gl.glCreateProgram()
+        gl.glAttachShader(prog, vs)
+        gl.glAttachShader(prog, fs)
+        gl.glLinkProgram(prog)
+        gl.glDeleteShader(vs)
+        gl.glDeleteShader(fs)
+        if not gl.glGetProgramiv(prog, gl.GL_LINK_STATUS):
+            raise RuntimeError(f"quad 着色器链接失败: {gl.glGetProgramInfoLog(prog)}")
+
+        import ctypes
+        import numpy as np
+        # 两个三角形组成全屏四边形：NDC 坐标 + UV，每顶点 4 个 float
+        verts = np.array([
+            -1.0, -1.0, 0.0, 0.0,
+             1.0, -1.0, 1.0, 0.0,
+             1.0,  1.0, 1.0, 1.0,
+            -1.0, -1.0, 0.0, 0.0,
+             1.0,  1.0, 1.0, 1.0,
+            -1.0,  1.0, 0.0, 1.0,
+        ], dtype=np.float32)
+        vao = gl.glGenVertexArrays(1)
+        vbo = gl.glGenBuffers(1)
+        gl.glBindVertexArray(vao)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, vbo)
+        gl.glBufferData(gl.GL_ARRAY_BUFFER, verts.nbytes, verts, gl.GL_STATIC_DRAW)
+        stride = 4 * verts.itemsize
+        gl.glVertexAttribPointer(0, 2, gl.GL_FLOAT, gl.GL_FALSE, stride, ctypes.c_void_p(0))
+        gl.glEnableVertexAttribArray(0)
+        gl.glVertexAttribPointer(1, 2, gl.GL_FLOAT, gl.GL_FALSE, stride, ctypes.c_void_p(8))
+        gl.glEnableVertexAttribArray(1)
+        gl.glBindVertexArray(0)
+        self._quad_vao, self._quad_vbo = vao, vbo
+        self._quad_prog = prog
+        logger.info("降采样 quad 着色器初始化完成")
+        return prog
+
+    def _draw_quad_fixed(self, gl) -> None:
+        """固定管线绘制全屏 quad（仅兼容型上下文可用，作为着色器失败的回退）"""
+        gl.glEnable(gl.GL_TEXTURE_2D)
+        gl.glMatrixMode(gl.GL_PROJECTION)
+        gl.glLoadIdentity()
+        gl.glMatrixMode(gl.GL_MODELVIEW)
+        gl.glLoadIdentity()
+        gl.glBegin(gl.GL_QUADS)
+        gl.glTexCoord2f(0.0, 1.0); gl.glVertex2f(-1.0, 1.0)
+        gl.glTexCoord2f(1.0, 1.0); gl.glVertex2f(1.0, 1.0)
+        gl.glTexCoord2f(1.0, 0.0); gl.glVertex2f(1.0, -1.0)
+        gl.glTexCoord2f(0.0, 0.0); gl.glVertex2f(-1.0, -1.0)
+        gl.glEnd()
+        gl.glDisable(gl.GL_TEXTURE_2D)
+
+    def _log_gl_diagnostics_once(self, gl) -> None:
+        """首帧输出一次 GL 运行环境诊断（排查锯齿/缩放问题时有用）"""
+        if getattr(self, "_gl_diag_done", False):
+            return
+        self._gl_diag_done = True
+        try:
+            vx, vy, vw, vh = gl.glGetIntegerv(gl.GL_VIEWPORT)
+            samples = gl.glGetIntegerv(gl.GL_SAMPLES)
+            ssaa = self.SSAA_SCALE if self._ssaa_fbo is not None else 1
+            logger.info(
+                f"GL 诊断: dpr={self.devicePixelRatio()} "
+                f"widget={self.width()}x{self.height()} "
+                f"绘制后视口={vw}x{vh}@{vx},{vy} "
+                f"MSAA采样数={samples} "
+                f"超采样={ssaa}x"
+            )
+        except Exception as e:
+            logger.debug(f"GL 诊断失败: {e}")
+
     def resizeGL(self, width: int, height: int) -> None:
-        """OpenGL 视口调整"""
+        """OpenGL 视口调整（视口用物理像素，模型布局用逻辑像素）"""
         try:
             import OpenGL.GL as gl
-            gl.glViewport(0, 0, width, height)
-            self._model.resize(width, height)
+            # 高 DPI 屏下 backing store 是物理分辨率，视口必须乘 DPR，
+            # 否则渲染结果会被 Qt 拉伸放大，产生模糊与锯齿
+            dpr = self.devicePixelRatio()
+            pw = max(1, int(width * dpr))
+            ph = max(1, int(height * dpr))
+            gl.glViewport(0, 0, pw, ph)
+            # Resize 也传物理尺寸：库内部（如遮罩裁剪）按此恢复视口，需与实际视口一致
+            self._model.resize(pw, ph)
             # Resize 会重置 matrix，需要重新补偿居中偏移
             self._model._model.SetOffset(0.45, 0.0)
         except Exception as e:

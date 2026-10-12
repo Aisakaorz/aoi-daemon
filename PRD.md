@@ -333,6 +333,13 @@ AoiDaemon/
 - `core/file_manager.py` 精简为通用上传暂存：移除太鼓文件扫描/读取/自动替换逻辑，保留上传存储与退出清理
 - 上传后的引导话术改为通用系统提示，文件选择对话框不再限定 JSON
 
+### v0.1.15 —— 渲染画质优化
+- 纹理采样从 NEAREST 改为 LINEAR（CLAMP_TO_EDGE 保留），显著减轻模型像素锯齿；接缝线由 CLAMP 解决，与采样方式无关
+- `resizeGL` 视口按设备像素比换算物理像素，修复高 DPI 屏幕下渲染被拉伸放大产生的模糊与锯齿
+- 默认 OpenGL 表面格式启用 4x MSAA 多重采样 + Alpha8，平滑模型网格几何边缘（须在创建 QApplication 前设置）
+- 新增 2x 超采样渲染（SSAA_SCALE=2）：模型渲染到 2 倍物理分辨率离屏纹理后线性降采样，消除细微移动时的边缘闪烁；FBO 创建失败自动回退直接渲染
+- 处理 DevicePixelRatioChange 事件，跨屏拖动等 DPR 变化场景自动重建渲染目标；所有渲染尺寸按运行时 DPR 动态计算，自动适配 100%~200% 任意缩放比例
+
 ### v0.2 —— 打包分发
 - PyInstaller 打包（Windows .exe）
 - Py2app 打包（macOS .app）
@@ -376,7 +383,7 @@ class Live2DModelWrapper:
 1. **MeshContext 导入 bug**：需在 `l2d/__init__.py` 中 monkey-patch `live2d.v2.core.alive2d_model` 的 MeshContext 导入。
 2. **OpenGL 上下文**：glewInit() 必须在 QOpenGLWidget.initializeGL() 中调用，__init__ 中提前调用会崩溃。
 3. **模型居中**：`Resize()` 会覆盖布局宽度为 2.0，导致模型左偏，需用 `SetOffset(0.45, 0.0)` 补偿。
-4. **纹理参数**：加载贴图后必须设置 `GL_TEXTURE_WRAP_S/T = GL_CLAMP_TO_EDGE` 和 `GL_TEXTURE_MIN/MAG_FILTER = GL_NEAREST`，否则出现接缝线。
+4. **纹理参数**：加载贴图后必须设置 `GL_TEXTURE_WRAP_S/T = GL_CLAMP_TO_EDGE`，否则贴图边缘出现接缝线；采样过滤用 `GL_LINEAR`（`GL_NEAREST` 会产生明显锯齿，v0.1.15 起从 NEAREST 切换）。MSAA 需在创建 QApplication 之前通过 `QSurfaceFormat.setDefaultFormat` 设置，且 `QOpenGLWidget.resizeGL()` 的视口尺寸要乘 `devicePixelRatio()` 换算为物理像素，否则高 DPI 屏下渲染结果会被拉伸放大。更高画质可用超采样（SSAA）：按物理分辨率 2 倍离屏渲染后线性降采样，见 v0.1.15。
 5. **FFmpeg stderr**：Qt 多媒体播放 MP3 时 C 库会写 stderr（fd 2）， bypass Python sys.stderr。需在 `main.py` 开头用 `os.dup2` 将 fd 2 重定向到 devnull，同时恢复 Python `sys.stderr` 绑定到原始 fd。
 6. **QGraphicsOpacityEffect 不兼容**：Qt6 中 `QGraphicsOpacityEffect` + `border-radius` 会导致动画期间变方。解决方案：用 `QPainter.setOpacity()` 在 QWidget 上自绘圆角矩形和文本。
 7. **QBoxLayout 压缩 spacing**：`QVBoxLayout` 空间不足时会优先压缩 `spacing` 导致气泡重叠。解决方案：保留 `QVBoxLayout` 作为容器（启用状态确保气泡可见），但用 `setGeometry` 手动覆盖每条消息的 y 坐标，并拦截 `LayoutRequest` 事件立即重布局。
@@ -390,3 +397,4 @@ class Live2DModelWrapper:
 15. **输入框 z-order 管理**：新消息加入时 Qt 可能将其置于输入框之上。解决方案：在 `add_message()` 和 `show_typing_indicator()` 中调用 `self._input_frame.raise_()`。
 16. **Live2D 模型版权**：开源仓库不放完整模型。本项目演示使用的 haru 模型来源于 hexo-helper-live2d 项目，版权归属 Live2D Inc.。README 需注明模型文件需用户自行提供。
 17. **macOS 权限**：首次运行可能需授予麦克风权限（STT）。
+18. **live2d 绘制后的 GL 状态污染**：live2d-py 绘制模型后会遗留 `GL_CULL_FACE` 开启且 `glFrontFace(GL_CW)`，以及 active 纹理单元停在 1（遮罩采样）。在模型绘制后做自定义 GL 绘制（如超采样降采样 quad）必须：先 `glDisable(GL_CULL_FACE)`、`glActiveTexture(GL_TEXTURE0)`；且核心上下文（Qt6 默认）中固定管线 glBegin 静默无效，需使用着色器 + VAO。
