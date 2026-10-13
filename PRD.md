@@ -385,6 +385,9 @@ AoiDaemon/
 - 新增 crash.log 崩溃落盘 + faulthandler（打包后无控制台可追查）
 - 打包踩坑（详见 TASK）：live2d 动态 sys.path 需显式收集、窗口程序 fd 2 无效需原子保护、frozen 模式跳过 l2d 的 sys.path 手术、venv 环境变量干扰内嵌解释器
 
+### v0.1.23 —— 展示/正文字体分离
+- ZCOOL 快乐体为装饰字体，小字号下笔画发虚——正文（聊天气泡、输入框等阅读场景）改用系统高可读性字体（微软雅黑/苹方），启动画面/菜单/关于等展示场景保留萌体
+
 ### v0.2 —— 打包分发
 - PyInstaller 打包（Windows .exe）：v0.1.22 已完成
 - Py2app 打包（macOS .app）

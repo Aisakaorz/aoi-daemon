@@ -49,6 +49,7 @@ tmp/
 
 # 日志文件
 logs/
+crash.log
 
 # Live2D 模型文件（版权原因不随仓库分发）
 resources/model/

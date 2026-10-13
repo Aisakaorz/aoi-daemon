@@ -324,6 +324,14 @@
 
 ---
 
+### v0.1.23 —— 修复小字号文字发虚（展示/正文字体分离）
+- [✔] utils/font_manager.py: 新增 body_font()/body_family() 正文接口——ZCOOL 快乐体属装饰字体，小字号下笔画发虚（用户反馈"文字糊糊的"），正文场景换用系统高可读性字体（Windows 微软雅黑 / macOS 苹方）
+- [✔] ui/chat_panel.py: 聊天气泡、系统消息、输入框、下载详情、跳到底部按钮改用正文字体；启动画面/菜单/关于对话框等展示场景保留萌体
+- [✔] 2 倍放大对比验证：ZCOOL 10pt 笔画边缘发肉 vs 雅黑 10pt 干净利落，分离后各取所长
+- [✔] .gitignore: 补充 crash.log（崩溃日志为运行时产物）
+
+---
+
 ### v0.2 —— 打包分发
 - [✔] PyInstaller 打包（Windows .exe）→ v0.1.22 已完成（单文件 exe，排除模型资源，README 含打包与分发说明）
 - [ ] Py2app 打包（macOS .app）

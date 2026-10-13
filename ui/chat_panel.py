@@ -13,7 +13,7 @@ from PySide6.QtGui import (
 )
 
 from utils.logger import get_logger
-from utils.font_manager import cute_font, cute_family
+from utils.font_manager import body_font, body_family
 
 logger = get_logger(__name__)
 
@@ -46,7 +46,7 @@ class BubbleWidget(QWidget):
         self._fade_opacity = 0.0
         self._position_opacity = 1.0
         self._raw_text = text
-        self._font = cute_font(10)
+        self._font = body_font(10)
         self.setFont(self._font)
         self._max_w = max_width
         self._pad_h = 10
@@ -59,7 +59,7 @@ class BubbleWidget(QWidget):
             self._text_color = QColor("#4A3F3A")
             self._bg_start = QColor("#FFC8C3")
             self._bg_end = QColor("#FFB3AD")
-            self._font = cute_font(8)
+            self._font = body_font(8)
             self.setFont(self._font)
             self._pad_h = 10
             self._pad_v = 5
@@ -266,7 +266,7 @@ class ChatPanel(QWidget):
         # 跳到底部按钮（滚动到上方历史时显示）
         self._scroll_to_bottom_btn = QLabel("▼", self)
         self._scroll_to_bottom_btn.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        family = cute_family()
+        family = body_family()
         self._scroll_to_bottom_btn.setStyleSheet("""
             QLabel {
                 background-color: rgba(255, 248, 243, 0.95);
@@ -302,7 +302,7 @@ class ChatPanel(QWidget):
         frame_layout.addWidget(self._voice_btn)
 
         self._input = QLineEdit(self._input_frame)
-        self._input.setFont(cute_font(10))
+        self._input.setFont(body_font(10))
         self._input.setPlaceholderText("跟葵酱说点什么吧~ ✨")
         self._input.returnPressed.connect(self._on_send)
         self._input.setStyleSheet("""
