@@ -195,9 +195,11 @@ aoi-daemon/
 │   └── stt_provider.py         # STT 封装：录音 + faster-whisper 转录
 ├── utils/
 │   ├── config_manager.py       # JSON 配置持久化（窗口位置/角色大小/开关状态）
+│   ├── font_manager.py         # 内置萌字体注册与取用（ZCOOL KuaiLe，缺失回退系统字体）
 │   └── logger.py               # 统一日志（分级/环境变量/ERROR文件/托盘切换）
 └── resources/
     ├── icons/                  # 应用图标
+    ├── fonts/                  # 内置萌字体（ZCOOL KuaiLe + OFL 许可证）
     ├── model/                  # Live2D 模型文件（需自行放置，见上文）
     ├── sounds/                 # 音效文件
     └── whisper/                # STT 模型（首次使用自动下载，或手动放置）
@@ -237,6 +239,7 @@ aoi-daemon/
 | v0.1.17 | 启动画面美化（galgame 风格加载卡片 + 子进程化，动画全程流畅滚动） | ✅ |
 | v0.1.18 | 启动画面 VTuber 化（直播间待机风格） | ✅ |
 | v0.1.19 | 修复退出时 stdin 管道最终化报错 | ✅ |
+| v0.1.20 | 内置萌字体（ZCOOL 站酷快乐体，跨设备一致显示） | ✅ |
 | 下一步 | PyInstaller 打包（Windows .exe，排除模型资源） | 📋 |
 
 ## 📄 模型与资源声明
@@ -249,6 +252,12 @@ aoi-daemon/
 - **仓库分发政策**：本开源仓库**不包含**任何 Live2D 模型文件
 - **用户责任**：请自行获取模型文件并放置到 `resources/model/` 目录
 - **获取方式**：参见上文「配置 Live2D 模型」章节
+
+### 字体
+
+- 应用内置字体 **ZCOOL 站酷快乐体**（圆头萌系风格，随应用分发，任何设备显示一致）
+- 字体以 [SIL Open Font License 1.1](https://openfontlicense.org/) 发布，可自由使用与再分发（许可证全文见 `resources/fonts/OFL-ZCOOLKuaiLe.txt`）
+- 字体文件缺失时自动回退系统黑体，不影响功能
 
 ### 图标与音效
 

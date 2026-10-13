@@ -183,9 +183,11 @@ AoiDaemon/
 ├── utils/
 │   ├── __init__.py
 │   ├── config_manager.py   # JSON 配置持久化（窗口位置、角色大小、开关状态）
+│   ├── font_manager.py     # 内置萌字体注册与取用（ZCOOL KuaiLe，缺失回退系统字体）
 │   └── logger.py
 └── resources/
     ├── icons/              # 应用图标
+    ├── fonts/              # 内置字体（ZCOOL KuaiLe 萌字体 + OFL 许可证，随应用分发）
     ├── model/              # Live2D 模型（用户自备，见 README）
     ├── sounds/             # 音效文件
     └── whisper/            # STT 模型（首次使用下载，或手动放置）
@@ -367,6 +369,10 @@ AoiDaemon/
 - 「STARTING ♡」珊瑚粉缎带、状态文案气泡化（圆角白泡 + 小尾巴 + 弹入动画）、标题扫光
 - 糖针斜纹进度条 + 爱心车头、四角星闪烁脉冲
 - 全部纯 QPainter 路径绘制、墙钟时间驱动，在启动画面子进程中保持全程流畅
+
+### v0.1.20 —— 内置萌字体（ZCOOL 站酷快乐体）
+- 应用自带 ZCOOL KuaiLe 字体（SIL OFL 1.1，可自由分发）：启动画面、聊天气泡、输入框、关于对话框统一萌系字体，任意设备显示一致
+- `utils/font_manager.py` 负责注册与回退（缺失时退回系统黑体，不影响功能）
 
 ### v0.2 —— 打包分发
 - PyInstaller 打包（Windows .exe）

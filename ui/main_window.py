@@ -23,6 +23,7 @@ from l2d.model_wrapper import Live2DModelWrapper
 from core.state_machine import StateMachine, CharacterState
 from core.file_manager import FileManager
 from utils.logger import get_logger
+from utils.font_manager import cute_font
 
 logger = get_logger(__name__)
 
@@ -701,7 +702,7 @@ class MainWindow(QMainWindow):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         title = QLabel("葵之使魔 ~AoiDaemon~")
-        title.setFont(QFont("Microsoft YaHei", 13, QFont.Weight.Bold))
+        title.setFont(cute_font(13, QFont.Weight.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("color: #333333;")
 
@@ -712,7 +713,7 @@ class MainWindow(QMainWindow):
         line.setFixedHeight(2)
 
         desc = QLabel("桌面级 Live2D 伴侣应用\n💻Powered by Aoi🌻 and Kimi🤖")
-        desc.setFont(QFont("Microsoft YaHei", 9))
+        desc.setFont(cute_font(9))
         desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
         desc.setStyleSheet("color: #888888;")
 

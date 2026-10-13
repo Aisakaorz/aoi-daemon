@@ -294,6 +294,22 @@
 
 ---
 
+### v0.1.20 —— 内置萌字体（ZCOOL 站酷快乐体）
+- [✔] resources/fonts/: 内置 ZCOOL KuaiLe（站酷快乐体，圆头俏皮风格，SIL OFL 1.1 许可可自由分发，附许可证文件 OFL-ZCOOLKuaiLe.txt，~1.5MB）
+- [✔] utils/font_manager.py: 新增字体管理模块——启动时把内置字体注册进 Qt 字体数据库，cute_font() 统一取字体，文件缺失/加载失败自动回退系统黑体（幂等 + 惰性加载）
+- [✔] ui/splash_screen.py / ui/chat_panel.py / ui/main_window.py: 启动画面（标题/字幕/气泡/LIVE/缎带）、聊天气泡与系统消息、输入框、关于对话框全部改用 cute_font，任意设备显示一致
+- [✔] 验证：真机抓图确认标题/气泡为圆头萌体；离屏环境（无系统字体）中文正常渲染（内置字体不依赖系统）
+- [✔] 补充修复：输入框/跳到底部按钮/下载详情的样式表硬编码 font-family 会覆盖 setFont——统一改用 cute_family() 动态注入，输入文字与 placeholder 同为萌体
+
+---
+
+### v0.1.21（规划中）—— 右键/托盘菜单萌化
+- [ ] 菜单视觉样式：圆角 pastel 风格（QSS）、hover 珊瑚粉高亮、勾选标记美化
+- [ ] 菜单字体换用内置萌体（与样式一起改，单独换字体在系统灰底菜单上违和）
+- [ ] 关于对话框卡片化（与启动画面同设计语言：徽章 + 圆角卡片 + 版本信息）
+
+---
+
 ### v0.2 —— 打包分发
 - [ ] PyInstaller 打包（Windows .exe）
 - [ ] Py2app 打包（macOS .app）

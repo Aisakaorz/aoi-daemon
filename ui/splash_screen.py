@@ -36,6 +36,7 @@ from PySide6.QtGui import (
 )
 
 from utils.logger import get_logger
+from utils.font_manager import cute_font
 
 logger = get_logger(__name__)
 
@@ -125,7 +126,7 @@ class _BubbleLabel(QWidget):
     def __init__(self, text, parent=None):
         super().__init__(parent)
         self._label = QLabel(text, self)
-        self._label.setFont(QFont("Microsoft YaHei UI", 11))
+        self._label.setFont(cute_font(11))
         self._label.setStyleSheet("color: #8A736C; background: transparent; border: none;")
         self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._popped = False
@@ -250,7 +251,7 @@ class SplashScreen(QWidget):
         live = QLabel("LIVE", holder)
         live.setGeometry(32, 8, 36, 16)
         live.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        live.setFont(QFont("Microsoft YaHei UI", 7, QFont.Weight.Bold))
+        live.setFont(cute_font(7, QFont.Weight.Bold))
         live.setStyleSheet(
             "background: #FF4D4D; color: #FFFFFF; border: 2px solid #FFFFFF;"
             "border-radius: 8px;"
@@ -268,7 +269,7 @@ class SplashScreen(QWidget):
         self._title_row.setStyleSheet("background: transparent; border: none;")
         layout.addWidget(self._title_row)
 
-        title_font = QFont("Microsoft YaHei UI", 20, QFont.Weight.Bold)
+        title_font = cute_font(20, QFont.Weight.Bold)
         try:
             title_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 2.0)
         except Exception:
@@ -279,7 +280,7 @@ class SplashScreen(QWidget):
         layout.addSpacing(2)
 
         # 英文小字幕
-        caption_font = QFont("Microsoft YaHei UI", 8)
+        caption_font = cute_font(8)
         try:
             caption_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 3.0)
         except Exception:
@@ -415,7 +416,7 @@ class SplashScreen(QWidget):
         p.setPen(Qt.PenStyle.NoPen)
         p.fillPath(ribbon_path, r_grad)
         p.setPen(QColor("#FFFFFF"))
-        p.setFont(QFont("Microsoft YaHei UI", 9, QFont.Weight.Bold))
+        p.setFont(cute_font(9, QFont.Weight.Bold))
         p.drawText(ribbon, Qt.AlignmentFlag.AlignCenter, "STARTING ♡")
         p.restore()
         p.end()

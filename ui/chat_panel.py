@@ -13,6 +13,7 @@ from PySide6.QtGui import (
 )
 
 from utils.logger import get_logger
+from utils.font_manager import cute_font, cute_family
 
 logger = get_logger(__name__)
 
@@ -45,7 +46,7 @@ class BubbleWidget(QWidget):
         self._fade_opacity = 0.0
         self._position_opacity = 1.0
         self._raw_text = text
-        self._font = QFont("Microsoft YaHei", 10)
+        self._font = cute_font(10)
         self.setFont(self._font)
         self._max_w = max_width
         self._pad_h = 10
@@ -56,7 +57,7 @@ class BubbleWidget(QWidget):
             self._text_color = QColor("#4A3F3A")
             self._bg_start = QColor("#FFC8C3")
             self._bg_end = QColor("#FFB3AD")
-            self._font = QFont("Microsoft YaHei", 8)
+            self._font = cute_font(8)
             self.setFont(self._font)
             self._pad_h = 10
             self._pad_v = 5
@@ -240,6 +241,7 @@ class ChatPanel(QWidget):
         # 跳到底部按钮（滚动到上方历史时显示）
         self._scroll_to_bottom_btn = QLabel("▼", self)
         self._scroll_to_bottom_btn.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        family = cute_family()
         self._scroll_to_bottom_btn.setStyleSheet("""
             QLabel {
                 background-color: rgba(255, 248, 243, 0.95);
@@ -247,13 +249,13 @@ class ChatPanel(QWidget):
                 border: 1.5px solid rgba(255, 170, 160, 0.75);
                 border-radius: 6px;
                 font-size: 9pt;
-                font-family: "Microsoft YaHei";
+                font-family: "__FAMILY__";
             }
             QLabel:hover {
                 background-color: rgba(255, 230, 225, 0.98);
                 border: 1.5px solid rgba(255, 140, 130, 0.9);
             }
-        """)
+        """.replace("__FAMILY__", family))
         self._scroll_to_bottom_btn.setFixedSize(24, 20)
         self._scroll_to_bottom_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._scroll_to_bottom_btn.hide()
@@ -275,6 +277,7 @@ class ChatPanel(QWidget):
         frame_layout.addWidget(self._voice_btn)
 
         self._input = QLineEdit(self._input_frame)
+        self._input.setFont(cute_font(10))
         self._input.setPlaceholderText("跟葵酱说点什么吧~ ✨")
         self._input.returnPressed.connect(self._on_send)
         self._input.setStyleSheet("""
@@ -282,14 +285,14 @@ class ChatPanel(QWidget):
                 background: transparent;
                 border: none;
                 outline: none;
-                font-family: "Microsoft YaHei";
+                font-family: "__FAMILY__";
                 font-size: 10pt;
                 color: #4A3F3A;
             }
             QLineEdit::placeholder {
                 color: rgba(140, 130, 125, 0.55);
             }
-        """)
+        """.replace("__FAMILY__", family))
         self._input.installEventFilter(self)
         frame_layout.addWidget(self._input)
 
@@ -329,12 +332,12 @@ class ChatPanel(QWidget):
         # 中间：下载详情（替代 QLineEdit）
         self._download_detail = QLabel("", self._download_frame)
         self._download_detail.setStyleSheet("""
-            font-family: "Microsoft YaHei";
+            font-family: "__FAMILY__";
             font-size: 10pt;
             color: #4A3F3A;
             background: transparent;
             border: none;
-        """)
+        """.replace("__FAMILY__", family))
         dl_layout.addWidget(self._download_detail, stretch=1)
 
         self._download_frame.hide()
