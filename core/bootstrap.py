@@ -17,6 +17,9 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# 应用版本号（关于对话框显示，随版本更新）
+APP_VERSION = "0.1.21"
+
 
 def setup_platform_env() -> None:
     """平台相关初始化（Qt5 风格环境变量，Qt6 下多为兼容保留）"""

@@ -10,9 +10,9 @@ import ctypes
 from ctypes import wintypes
 from typing import Optional
 
-from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QApplication, QSystemTrayIcon
-from PySide6.QtCore import Qt, QPoint, QByteArray, QTimer
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QApplication, QSystemTrayIcon, QMenu
+from PySide6.QtCore import Qt, QPoint, QByteArray, QTimer, QRectF
+from PySide6.QtGui import QMouseEvent, QPainter, QPainterPath, QColor, QPen
 
 from utils import config_manager as cfg
 
@@ -34,6 +34,79 @@ _DEFAULT_HEIGHT = 600
 # 角色底部占窗口高度的比例（从顶部算起），用于限制聊天面板位置
 # 经实际视觉微调：haru 模型脚部约在 95.5% 高度处
 _CHARACTER_BOTTOM_RATIO = 0.955
+
+# 统一菜单样式（右键/托盘共用）：圆角 pastel 卡片，与启动画面同一设计语言。
+# 容器背景不在 QSS 中绘制（避免原生底色残留在圆角外），
+# 由 _CuteMenu.paintEvent 在透明窗口上自绘圆角卡片
+_MENU_QSS = """
+QMenu {
+    background: transparent;
+    border: none;
+}
+QMenu::item {
+    padding: 7px 30px 7px 32px;
+    margin: 1px 5px;
+    border-radius: 7px;
+    color: #4A3F3A;
+}
+QMenu::item:selected {
+    background-color: #FFE3DE;
+    color: #E0507A;
+}
+QMenu::item:disabled {
+    color: #C9BBB5;
+}
+QMenu::indicator {
+    width: 13px;
+    height: 13px;
+    left: 9px;
+    border-radius: 4px;
+    background: transparent;
+}
+QMenu::indicator:checked {
+    image: none;
+    background: #F2668B;
+    border: 2px solid #FFD3DC;
+    border-radius: 5px;
+}
+QMenu::separator {
+    height: 1px;
+    background: #FFD9D4;
+    margin: 5px 14px;
+}
+"""
+
+
+class _CuteMenu(QMenu):
+    """圆角菜单：透明弹窗 + 自绘圆角卡片（消除 QSS 圆角外的原生底色残留）。
+    背景卡片在 paintEvent 中先绘制，样式表负责条目/勾选/分隔线。"""
+
+    _RADIUS = 10
+
+    def __init__(self, title: str | None = None, parent=None):
+        if title is not None:
+            super().__init__(title, parent)
+        else:
+            super().__init__(parent)
+        self.setWindowFlags(
+            Qt.WindowType.Popup
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.NoDropShadowWindowHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+
+    def paintEvent(self, event) -> None:
+        # 先画圆角卡片，再让样式绘制条目（样式表已把容器背景设为透明）
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        path = QPainterPath()
+        path.addRoundedRect(rect, self._RADIUS, self._RADIUS)
+        p.fillPath(path, QColor("#FFF8F5"))
+        p.setPen(QPen(QColor("#FFD0C8"), 1))
+        p.drawPath(path)
+        p.end()
+        super().paintEvent(event)
 
 # Windows API 常量
 WS_EX_TRANSPARENT = 0x00000020
@@ -218,7 +291,10 @@ class MainWindow(QMainWindow):
         from PySide6.QtWidgets import QMenu
         from PySide6.QtGui import QAction, QActionGroup
 
-        self._menu = QMenu(self)
+        self._menu = _CuteMenu(self)
+        self._menu.setFont(cute_font(10))
+        self._menu.setStyleSheet(_MENU_QSS)
+        self._menu.setContentsMargins(4, 6, 4, 6)
 
         # ---- 显示/隐藏葵酱 ----
         self._action_visible = QAction("隐藏葵酱", self)
@@ -247,7 +323,7 @@ class MainWindow(QMainWindow):
         self._menu.addSeparator()
 
         # ---- 角色大小子菜单 ----
-        size_menu = QMenu("角色大小", self)
+        size_menu = _CuteMenu("角色大小", self)
         self._size_group = QActionGroup(self)
         self._size_group.setExclusive(True)
 
@@ -290,7 +366,7 @@ class MainWindow(QMainWindow):
         from PySide6.QtGui import QAction, QActionGroup
         from voice.model_manager import get_available_models, get_current_model_id
 
-        stt_menu = QMenu("语音转文字模型", self)
+        stt_menu = _CuteMenu("语音转文字模型", self)
         self._stt_group = QActionGroup(self)
         self._stt_group.setExclusive(True)
 
@@ -682,47 +758,9 @@ class MainWindow(QMainWindow):
         logger.info(f"角色大小调整为 {scale}x ({new_width}x{new_height})")
 
     def _show_about(self) -> None:
-        """显示关于信息（自定义弹窗，无提示图标，应用图标，内容绝对居中）"""
-        from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QFrame
-        from PySide6.QtGui import QIcon, QFont
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle("关于 葵之使魔")
-        dialog.setFixedSize(260, 110)
-        dialog.setStyleSheet("QDialog { background-color: #FAFAFA; }")
-
-        # 设置应用图标
-        icon_path = "resources/icons/app_icon.ico"
-        if os.path.exists(icon_path):
-            dialog.setWindowIcon(QIcon(icon_path))
-
-        layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(6)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        title = QLabel("葵之使魔 ~AoiDaemon~")
-        title.setFont(cute_font(13, QFont.Weight.Bold))
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("color: #333333;")
-
-        # 装饰分割线
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("color: #E0E0E0;")
-        line.setFixedHeight(2)
-
-        desc = QLabel("桌面级 Live2D 伴侣应用\n💻Powered by Aoi🌻 and Kimi🤖")
-        desc.setFont(cute_font(9))
-        desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        desc.setStyleSheet("color: #888888;")
-
-        layout.addWidget(title)
-        layout.addWidget(line)
-        layout.addWidget(desc)
-        layout.addStretch()
-
-        dialog.exec()
+        """显示关于信息（圆角卡片式弹窗，与启动画面同一设计语言）"""
+        from ui.about_dialog import AboutDialog
+        AboutDialog(self).exec()
 
     def _on_quit(self) -> None:
         """退出应用（保存配置、清空临时文件后退出）"""

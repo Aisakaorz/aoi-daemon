@@ -374,6 +374,11 @@ AoiDaemon/
 - 应用自带 ZCOOL KuaiLe 字体（SIL OFL 1.1，可自由分发）：启动画面、聊天气泡、输入框、关于对话框统一萌系字体，任意设备显示一致
 - `utils/font_manager.py` 负责注册与回退（缺失时退回系统黑体，不影响功能）
 
+### v0.1.21 —— 整体视觉统一（菜单萌化 + 关于卡片 + 气泡尾巴）
+- 右键/托盘菜单：圆角 pastel 卡片样式（hover 高亮、粉色勾选块、粉色分隔线）+ 内置萌字体，与启动画面同一设计语言
+- 关于对话框卡片化：新增 `ui/about_dialog.py`（徽章 + 圆角卡片 + 版本号），`core/bootstrap.py` 提供 APP_VERSION
+- 聊天气泡：圆角加大 + galgame 小尾巴（AI 左下 / 用户右下）
+
 ### v0.2 —— 打包分发
 - PyInstaller 打包（Windows .exe）
 - Py2app 打包（macOS .app）

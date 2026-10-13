@@ -182,6 +182,7 @@ aoi-daemon/
 │   ├── main_window.py          # 透明无边框置顶窗口
 │   ├── live2d_canvas.py        # Live2D 渲染画布
 │   ├── chat_panel.py           # 聊天气泡面板 + 输入框 + 语音按钮 + 下载进度
+│   ├── about_dialog.py         # 关于对话框（圆角卡片式，与启动画面同设计语言）
 │   ├── splash_screen.py        # 启动加载画面（模型加载期间显示）
 │   └── tray_icon.py            # 系统托盘
 ├── l2d/
@@ -240,6 +241,7 @@ aoi-daemon/
 | v0.1.18 | 启动画面 VTuber 化（直播间待机风格） | ✅ |
 | v0.1.19 | 修复退出时 stdin 管道最终化报错 | ✅ |
 | v0.1.20 | 内置萌字体（ZCOOL 站酷快乐体，跨设备一致显示） | ✅ |
+| v0.1.21 | 整体视觉统一（菜单萌化 + 关于卡片 + 气泡尾巴） | ✅ |
 | 下一步 | PyInstaller 打包（Windows .exe，排除模型资源） | 📋 |
 
 ## 📄 模型与资源声明

@@ -7,9 +7,9 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QFrame, QDialog, QScrollArea
 )
-from PySide6.QtCore import Qt, Signal, QTimer, QVariantAnimation, QEasingCurve, QEvent, QDateTime, QPoint, QRect
+from PySide6.QtCore import Qt, Signal, QTimer, QVariantAnimation, QEasingCurve, QEvent, QDateTime, QPoint, QRect, QRectF
 from PySide6.QtGui import (
-    QFont, QPainter, QColor, QLinearGradient, QBrush, QPen, QRegion, QPalette
+    QFont, QPainter, QColor, QLinearGradient, QBrush, QPen, QRegion, QPalette, QPainterPath
 )
 
 from utils.logger import get_logger
@@ -51,7 +51,9 @@ class BubbleWidget(QWidget):
         self._max_w = max_width
         self._pad_h = 10
         self._pad_v = 8
-        self._radius = 8
+        self._radius = 12
+        # 非系统气泡底部留尾巴空间（galgame 气泡小尾巴）
+        self._tail_extra = 8 if not is_system else 0
 
         if is_system:
             self._text_color = QColor("#4A3F3A")
@@ -61,7 +63,7 @@ class BubbleWidget(QWidget):
             self.setFont(self._font)
             self._pad_h = 10
             self._pad_v = 5
-            self._radius = 6
+            self._radius = 10
         elif is_user:
             self._text_color = QColor("#1A3A5C")
             self._bg_start = QColor("#A0D8EF")
@@ -153,12 +155,12 @@ class BubbleWidget(QWidget):
 
         # 气泡尺寸以 QLabel 实际渲染尺寸为基准，确保文字完整显示
         w = min(self._label.width() + self._pad_h * 2, self._max_w)
-        h = self._label.height() + self._pad_v * 2
+        h = self._label.height() + self._pad_v * 2 + self._tail_extra
         self.setFixedSize(w, h)
 
-        # QLabel 在气泡内水平居中、垂直居中
+        # QLabel 在气泡内水平居中、垂直居中（尾巴区域不占文本空间）
         label_x = self._pad_h + (w - self._pad_h * 2 - self._label.width()) // 2
-        label_y = self._pad_v + (h - self._pad_v * 2 - self._label.height()) // 2
+        label_y = self._pad_v + (h - self._tail_extra - self._pad_v * 2 - self._label.height()) // 2
         self._label.setGeometry(label_x, label_y, self._label.width(), self._label.height())
 
     # ---- 绘制 ----
@@ -169,14 +171,37 @@ class BubbleWidget(QWidget):
         painter.setOpacity(opacity)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # 圆角渐变背景（圆角半径 8px，避免 12px 与文本底部冲突）
-        rect = self.rect().adjusted(1, 1, -1, -1)
-        gradient = QLinearGradient(0, 0, 0, self.height())
+        # 气泡主体（底部为尾巴留出空间）
+        body = QRectF(1, 1, self.width() - 2, self.height() - self._tail_extra - 1)
+
+        # 小尾巴（galgame 风格：AI 气泡左下、用户气泡右下；先画在主体下层）
+        if self._tail_extra:
+            tw = 11.0
+            th = float(self._tail_extra - 1)
+            y0 = body.bottom() - 1.5
+            tail = QPainterPath()
+            if self._is_user:
+                tx = float(self.width() - 24)
+                tail.moveTo(tx - tw, y0)
+                tail.lineTo(tx, y0)
+                tail.lineTo(tx - 3, y0 + th)
+            else:
+                tx = 22.0
+                tail.moveTo(tx, y0)
+                tail.lineTo(tx + tw, y0)
+                tail.lineTo(tx + 4, y0 + th)
+            tail.closeSubpath()
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(self._bg_end))
+            painter.drawPath(tail)
+
+        # 圆角渐变主体
+        gradient = QLinearGradient(0, 0, 0, body.height())
         gradient.setColorAt(0, self._bg_start)
         gradient.setColorAt(1, self._bg_end)
         painter.setBrush(QBrush(gradient))
         painter.setPen(QPen(QColor(0, 0, 0, 15), 1))
-        painter.drawRoundedRect(rect, self._radius, self._radius)
+        painter.drawRoundedRect(body, self._radius, self._radius)
 
 
 class ChatPanel(QWidget):
