@@ -15,6 +15,7 @@ v0.1：透明置顶窗口 + Live2D 渲染 + 视线跟踪 + 呼吸动画 + 聊天
 import glob
 import io
 import os
+import subprocess
 import sys
 
 # ------------------------------------------------------------------
@@ -36,12 +37,14 @@ sys.stderr = io.TextIOWrapper(
 # 同时屏蔽 Qt 自身的多媒体日志
 os.environ["QT_LOGGING_RULES"] = "qt.multimedia.ffmpeg=false"
 
-from core.app import AoiDaemonApp
 from utils import config_manager as cfg
+from utils.logger import get_logger
 
+logger = get_logger(__name__)
 
 # resources/model/ 的绝对路径（以本文件为基准）
 _MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "resources", "model")
+_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def _has_model_files() -> bool:
@@ -73,8 +76,79 @@ def _show_missing_model_dialog() -> None:
     msg.exec()
 
 
+class _SplashChildProxy:
+    """子进程启动画面的代理：对主进程暴露与 SplashScreen 相同的 request_close 接口"""
+
+    def __init__(self, proc: subprocess.Popen):
+        self._proc = proc
+
+    def request_close(self) -> None:
+        try:
+            self._proc.stdin.write(b"close\n")
+            self._proc.stdin.flush()
+        except Exception:
+            pass  # 子进程已退出或管道断开时忽略
+
+    def terminate(self) -> None:
+        """退出兜底：通知关闭 → 等待 → 结束整个进程树 → 强杀"""
+        self.request_close()
+        try:
+            self._proc.wait(timeout=3)
+            return
+        except Exception:
+            pass
+        # 结束进程树（兼容解释器重定向器派生的中间进程残留）
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(self._proc.pid), "/T", "/F"],
+                capture_output=True,
+            )
+        except Exception:
+            try:
+                self._proc.kill()
+            except Exception:
+                pass
+
+
+def _launch_splash_child():
+    """启动子进程启动画面（无需 Qt，可在主进程任何导入之前调用）。
+
+    独立进程的动画运行在子进程自己的事件循环中，不被主进程
+    的重型导入/窗口构建/模型加载阻塞，保证从显示到关闭全程流畅。
+    启动失败返回 None，由调用方回退到进程内启动画面。
+    """
+    try:
+        if getattr(sys, "frozen", False):
+            # PyInstaller 打包模式：复用主程序 exe，带 --splash-child 参数
+            cmd = [sys.executable, "--splash-child"]
+        else:
+            # 开发模式：直接用当前解释器（venv 内自带 PySide6），
+            # CREATE_NO_WINDOW 避免控制台窗口闪现。
+            # 不能换 pythonw（GUI 子系统会关闭 stdio，stdin 管道失效），
+            # 也不能换 sys._base_executable（脱离 venv 后找不到 PySide6）
+            cmd = [sys.executable, os.path.join(_ROOT, "splash_child.py")]
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+        )
+        logger.info("子进程启动画面已启动")
+        return _SplashChildProxy(proc)
+    except Exception as e:
+        logger.warning(f"子进程启动画面启动失败，回退进程内启动画面: {e}")
+        return None
+
+
 def main() -> int:
     """应用入口"""
+    # 打包模式下作为启动画面子进程运行（须在重型导入之前分流）
+    if "--splash-child" in sys.argv:
+        from splash_child import run_splash_child
+        return run_splash_child()
+
     # 先加载用户配置（窗口位置、角色大小等）
     cfg.load()
 
@@ -82,8 +156,35 @@ def main() -> int:
         _show_missing_model_dialog()
         return 0
 
-    app = AoiDaemonApp()
-    return app.run()
+    # 尽早启动子进程启动画面：不依赖 Qt，先于一切重型导入
+    splash_proxy = _launch_splash_child()
+
+    # 平台/GL 环境设置（须在 QApplication 创建前）
+    from core.bootstrap import setup_platform_env, setup_surface_format
+    setup_platform_env()
+    setup_surface_format()
+
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication(sys.argv)
+    app.setApplicationName("葵之使魔")
+    app.setApplicationDisplayName("AoiDaemon")
+
+    # 子进程启动画面失败时的兜底：进程内启动画面
+    splash = None
+    if splash_proxy is None:
+        from ui.splash_screen import SplashScreen
+        splash = SplashScreen()
+        splash.show()
+        app.processEvents()
+
+    try:
+        # 重型导入放在启动画面显示之后
+        from core.app import AoiDaemonApp
+        return AoiDaemonApp(app, splash or splash_proxy).run()
+    finally:
+        if splash_proxy is not None:
+            splash_proxy.terminate()
 
 
 if __name__ == "__main__":

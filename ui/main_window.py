@@ -199,7 +199,7 @@ class MainWindow(QMainWindow):
         """Live2D 模型初始化完成后关闭启动画面"""
         if self._splash is not None:
             logger.info("模型加载完成，关闭启动画面")
-            self._splash.close()
+            self._splash.request_close()
             self._splash = None
 
     def _setup_tray(self) -> None:

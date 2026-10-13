@@ -171,9 +171,11 @@ python main.py
 ```
 aoi-daemon/
 ├── main.py                     # 应用入口
+├── splash_child.py             # 启动画面子进程入口（独立事件循环，动画不被主进程阻塞）
 ├── requirements.txt            # 依赖列表
 ├── core/
 │   ├── app.py                  # 应用主控制器
+│   ├── bootstrap.py            # 轻量引导（平台环境/GL 表面格式，须在 QApplication 前调用）
 │   ├── file_manager.py         # 用户上传文件管理（临时存储/生命周期）
 │   └── state_machine.py        # 角色动作状态机
 ├── ui/
@@ -231,6 +233,8 @@ aoi-daemon/
 | v0.1.13 | 高危 bug 修复（STT 卡顿、指令崩溃、退出安全、下载竞态） | ✅ |
 | v0.1.14 | 精简：移除太鼓成绩查询与斜杠指令，保留文件上传暂存 | ✅ |
 | v0.1.15 | 渲染画质优化（MSAA 抗锯齿 + 线性纹理采样 + 高 DPI 视口修正） | ✅ |
+| v0.1.16 | 修复小/大尺寸启动时聊天面板被截断 | ✅ |
+| v0.1.17 | 启动画面美化（galgame 风格加载卡片 + 子进程化，动画全程流畅滚动） | ✅ |
 | 下一步 | PyInstaller 打包（Windows .exe，排除模型资源） | 📋 |
 
 ## 📄 模型与资源声明

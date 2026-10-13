@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """
 应用主控制器（Application Controller）
-协调 Live2D 模型、状态机、UI 窗口、AI 后端等各模块的初始化与生命周期
-"""
-import sys
-import os
+协调 Live2D 模型、状态机、UI 窗口等各模块的初始化与生命周期
 
+说明：QApplication 与启动画面由 main.py 在导入重型依赖链之前创建并传入
+（尽早显示加载界面，避免黑屏）；平台环境与 OpenGL 表面格式由 core.bootstrap
+在 QApplication 创建前设置
+"""
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QSurfaceFormat
 
 from l2d.model_wrapper import Live2DModelWrapper
 from core.state_machine import StateMachine
@@ -22,47 +21,20 @@ logger = get_logger(__name__)
 class AoiDaemonApp:
     """
     葵之使魔应用主类
-    葵酱（Aoi）是基于 Live2D 免费模型 haru 的桌面看板娘。
-    负责：
-    1. QApplication 创建
-    2. 平台相关初始化（macOS/Windows 高分屏等）
-    3. 核心模块组装（ModelWrapper + StateMachine + MainWindow）
-    4. 主事件循环启动
+    负责核心模块组装（ModelWrapper + StateMachine + MainWindow）与主事件循环
     """
 
-    def __init__(self):
-        self._app: QApplication = None
+    def __init__(self, app: QApplication, splash=None):
+        """
+        :param app: QApplication 实例（由 main.py 创建）
+        :param splash: 启动画面（SplashScreen 或子进程代理，均需实现 request_close；
+                       None 表示无启动画面）
+        """
+        self._app = app
+        self._splash = splash
         self._model: Live2DModelWrapper = None
         self._state: StateMachine = None
         self._window: MainWindow = None
-
-    def _setup_platform(self) -> None:
-        """
-        平台相关初始化
-        - Windows: 设置 DPI 感知
-        - macOS: 启用 Retina 高分屏支持
-        """
-        if sys.platform == "darwin":
-            # macOS: 启用 Retina 支持
-            os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-            logger.info("macOS 平台：启用 Retina 高分屏支持")
-        elif sys.platform == "win32":
-            # Windows: 高 DPI 缩放
-            os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
-            os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-            logger.info("Windows 平台：启用高 DPI 缩放")
-
-    def _setup_surface_format(self) -> None:
-        """
-        设置默认 OpenGL 表面格式（必须在 QApplication 创建前调用）
-        - 4x MSAA 多重采样：平滑模型网格几何边缘的锯齿
-        - Alpha 缓冲：配合窗口透明背景
-        """
-        fmt = QSurfaceFormat()
-        fmt.setSamples(4)
-        fmt.setAlphaBufferSize(8)
-        QSurfaceFormat.setDefaultFormat(fmt)
-        logger.info("OpenGL 表面格式已设置：4x MSAA + Alpha8")
 
     def run(self) -> int:
         """
@@ -70,27 +42,12 @@ class AoiDaemonApp:
         :return: 进程退出码
         """
         try:
-            # 1. 平台设置与 OpenGL 表面格式（须在创建 QApplication 之前）
-            self._setup_platform()
-            self._setup_surface_format()
-
-            # 2. 创建 Qt 应用
-            # 注意：QApplication 接受命令行参数
-            self._app = QApplication(sys.argv)
-            self._app.setApplicationName("葵之使魔")
-            self._app.setApplicationDisplayName("AoiDaemon")
-
-            # 显示启动画面（在模型加载完成前提供视觉反馈）
-            splash = SplashScreen()
-            splash.show()
-            self._app.processEvents()
-
-            # 3. 初始化核心模块
+            # 1. 初始化核心模块
             self._model = Live2DModelWrapper()
             self._state = StateMachine()
 
-            # 4. 创建主窗口（传入启动画面，模型加载完成后自动关闭）
-            self._window = MainWindow(self._model, self._state, splash_screen=splash)
+            # 2. 创建主窗口（传入启动画面，模型加载完成后自动关闭）
+            self._window = MainWindow(self._model, self._state, splash_screen=self._splash)
             self._window.show()
 
             logger.info("葵之使魔启动成功，进入主事件循环")

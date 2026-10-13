@@ -254,6 +254,26 @@
 
 ---
 
+### v0.1.17 —— 启动画面美化（galgame 风格加载卡片）+ 子进程化（动画全程流畅滚动）
+**视觉设计**
+- [✔] ui/splash_screen.py: 弃用 QBitmap 1bit 遮罩（圆角锯齿），改为透明背景 + 抗锯齿自绘圆角卡片
+- [✔] ui/splash_screen.py: 奶白→浅珊瑚渐变底 + 珊瑚粉双边框（外框 + 顶部内高光线）+ 多层手绘柔影（弃用 QGraphicsDropShadowEffect：透明窗口上残留白色圆角幻影、且干扰子控件动画刷新）
+- [✔] ui/splash_screen.py: 圆形白色徽章头像（64px 粉边徽章 + 48px 图标）
+- [✔] ui/splash_screen.py: 标题玫瑰粉 + 2px 字距、新增 AOIDAEMON 字距小字幕；四角手绘星星与圆点装饰
+- [✔] ui/splash_screen.py: 不定态滚动进度条（高饱和珊瑚渐变小条匀速向右循环滚动、带方向性拖尾，按墙钟时间定位，1.1s 单程）与静态状态文案
+- [✔] ui/splash_screen.py: 最短展示时长 1.2s（request_close），剩余时间≤0 时直接淡出（避免 singleShot(0) 个别场景不触发）；新增 220ms 淡出动画；WA_DeleteOnClose 确保关闭后动画定时器销毁
+
+**动画流畅化（子进程启动画面）**
+- [✔] splash_child.py: 新增启动画面子进程——动画运行在子进程专属事件循环中，不被主进程的重型导入/窗口构建/模型加载阻塞，从显示到关闭全程流畅滚动；孤儿防护（父进程退出 → stdin 断开 → 自行退出）+ 主动退出兜底
+- [✔] main.py: ~0.3s（无需 Qt）派生子进程，早于一切重型导入；加载完成经 stdin 管道发送 close；子进程启动失败自动回退进程内启动画面；退出时通知关闭 → 等待 → taskkill 进程树兜底
+- [✔] main.py / splash_child.py: 解释器选型踩坑记录——不能用 pythonw（GUI 子系统关闭 stdio，stdin 管道协议失效）、不能用 sys._base_executable（脱离 venv 找不到 PySide6）、不能用 venv 的 pythonw 重定向器（派生双进程、管道写句柄泄漏、EOF 永不送达）；正确配方：sys.executable + CREATE_NO_WINDOW
+- [✔] core/bootstrap.py: 新增轻量引导模块（平台环境变量 + 默认 OpenGL 表面格式），须在 QApplication 创建前调用，独立于重型依赖链
+- [✔] core/app.py: AoiDaemonApp 改为接收外部创建的 QApplication 与启动画面（SplashScreen 或子进程代理，均实现 request_close）
+- [✔] ui/main_window.py: 否决并回退"构建期 _pump_events 插帧"方案（稀疏插帧导致进度条断续跳跃）
+- [✔] 端到端实测：子进程 297ms 内派发并独立显示；加载全程进度条滚动；close 指令后淡出退出、无孤儿残留
+
+---
+
 ### v0.2 —— 打包分发
 - [ ] PyInstaller 打包（Windows .exe）
 - [ ] Py2app 打包（macOS .app）

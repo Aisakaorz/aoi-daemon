@@ -149,6 +149,7 @@
 ```
 AoiDaemon/
 ├── main.py
+├── splash_child.py         # 启动画面子进程入口（独立事件循环，动画不被主进程阻塞）
 ├── requirements.txt
 ├── config.json
 ├── README.md
@@ -157,6 +158,7 @@ AoiDaemon/
 ├── .gitignore
 ├── core/
 │   ├── app.py              # 应用主控制器，协调各模块
+│   ├── bootstrap.py        # 轻量引导（平台环境/GL 表面格式，须在 QApplication 前调用）
 │   ├── file_manager.py     # 用户上传文件管理器（临时存储、退出清理）
 │   ├── __init__.py
 │   └── state_machine.py    # 角色动作状态机
@@ -339,6 +341,26 @@ AoiDaemon/
 - 默认 OpenGL 表面格式启用 4x MSAA 多重采样 + Alpha8，平滑模型网格几何边缘（须在创建 QApplication 前设置）
 - 新增 2x 超采样渲染（SSAA_SCALE=2）：模型渲染到 2 倍物理分辨率离屏纹理后线性降采样，消除细微移动时的边缘闪烁；FBO 创建失败自动回退直接渲染
 - 处理 DevicePixelRatioChange 事件，跨屏拖动等 DPR 变化场景自动重建渲染目标；所有渲染尺寸按运行时 DPR 动态计算，自动适配 100%~200% 任意缩放比例
+
+### v0.1.16 —— 修复非中档尺寸启动时聊天面板被截断
+- 根因：恢复小/大尺寸时 `_adjust_height` 在窗口首次显示前执行，布局未激活导致父部件高度为过期小值（30px），面板高度被按比例钳制永久压成 19px，输入框（40px）截断
+- `_get_max_panel_height` 父高度异常（≤50px）时退回固定上限；`showEvent` 首次显示时通过 `refresh_panel_height()` 重算，双保险消除过期高度
+
+### v0.1.17 —— 启动画面美化（galgame 风格加载卡片）+ 子进程化（动画全程流畅滚动）
+**视觉设计**
+- 弃用 QBitmap 1bit 遮罩（圆角锯齿），改为透明背景 + 抗锯齿自绘圆角卡片
+- 奶白→浅珊瑚渐变底 + 珊瑚粉双边框（外框 + 内高光线）+ 多层手绘柔影（替代 QGraphicsDropShadowEffect，其在透明窗口上残留白色幻影且干扰子控件动画）
+- 圆形白色徽章头像（图标居中、粉边）；标题加字距 + 玫瑰粉着色 + AOIDAEMON 字距小字幕
+- 不定态滚动进度条（珊瑚渐变小条匀速向右循环滚动、带方向性拖尾、按墙钟时间定位）+ 静态状态文案
+- 四角手绘星星与圆点装饰；`close()` 经 WA_DeleteOnClose 自动销毁动画定时器
+- 最短展示时长 1.2s + 220ms 淡出动画；剩余时间≤0 时直接淡出（避免 singleShot(0) 个别场景不触发）
+
+**动画流畅化（子进程启动画面）**
+- 启动画面放入独立子进程：动画运行在子进程专属事件循环中，不被主进程的重型导入/窗口构建/模型加载阻塞，从显示到关闭全程流畅滚动
+- main.py 尽早（~0.3s，无需 Qt）派生子进程，早于一切重型导入；加载完成经 stdin 管道发送 close；子进程失败回退进程内启动画面；退出时通知关闭 → 等待 → taskkill 进程树兜底
+- 子进程孤儿防护：父进程退出 → stdin 管道断开 → 自行退出；另加关闭指令后的主动退出兜底
+- 踩坑记录：pythonw 会关闭 stdio（stdin 管道失效）、sys._base_executable 脱离 venv（找不到 PySide6）、venv pythonw 是重定向器（派生双进程、管道写句柄泄漏致 EOF 永不送达）；正确配方 sys.executable + CREATE_NO_WINDOW
+- 曾尝试"构建期插帧泵事件"方案（_pump_events），实测导致进度条断续跳跃，已回退
 
 ### v0.2 —— 打包分发
 - PyInstaller 打包（Windows .exe）
