@@ -711,7 +711,7 @@ class MainWindow(QMainWindow):
         line.setStyleSheet("color: #E0E0E0;")
         line.setFixedHeight(2)
 
-        desc = QLabel("桌面级 Live2D 伴侣应用\n💻Powered by Aoi🌻")
+        desc = QLabel("桌面级 Live2D 伴侣应用\n💻Powered by Aoi🌻 and Kimi🤖")
         desc.setFont(QFont("Microsoft YaHei", 9))
         desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
         desc.setStyleSheet("color: #888888;")

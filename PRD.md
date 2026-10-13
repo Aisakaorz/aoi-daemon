@@ -362,6 +362,12 @@ AoiDaemon/
 - 踩坑记录：pythonw 会关闭 stdio（stdin 管道失效）、sys._base_executable 脱离 venv（找不到 PySide6）、venv pythonw 是重定向器（派生双进程、管道写句柄泄漏致 EOF 永不送达）；正确配方 sys.executable + CREATE_NO_WINDOW
 - 曾尝试"构建期插帧泵事件"方案（_pump_events），实测导致进度条断续跳跃，已回退
 
+### v0.1.18 —— 启动画面 VTuber 化（直播间待机风格）
+- 漂浮爱心/星星粒子背景（缓慢上浮 + 首尾淡出 + 透明度呼吸）、徽章头像待机浮动 + LIVE 红标骑角
+- 「STARTING ♡」珊瑚粉缎带、状态文案气泡化（圆角白泡 + 小尾巴 + 弹入动画）、标题扫光
+- 糖针斜纹进度条 + 爱心车头、四角星闪烁脉冲
+- 全部纯 QPainter 路径绘制、墙钟时间驱动，在启动画面子进程中保持全程流畅
+
 ### v0.2 —— 打包分发
 - PyInstaller 打包（Windows .exe）
 - Py2app 打包（macOS .app）
