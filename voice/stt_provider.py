@@ -90,8 +90,17 @@ class AudioRecorder:
             wf.writeframes(data.tobytes())
 
 
+class SttEnvironmentError(RuntimeError):
+    """语音引擎运行环境缺依赖（如 VC++ 运行库），需要用户安装后重启"""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.user_message = message
+
+
 class TranscribeSignals(QObject):
     finished = Signal(str)
+    error = Signal(str)  # 环境类错误（带用户引导文案）
 
 
 class TranscribeRunnable(QRunnable):
@@ -107,6 +116,9 @@ class TranscribeRunnable(QRunnable):
         try:
             text = self._stt.transcribe(self._path)
             self.signals.finished.emit(text)
+        except SttEnvironmentError as e:
+            logger.error(f"语音引擎环境错误: {e}")
+            self.signals.error.emit(e.user_message)
         except Exception as e:
             logger.error(f"转录失败: {e}")
             self.signals.finished.emit("")
@@ -129,7 +141,16 @@ class STTProvider:
         with self._model_load_lock:
             if self._model is not None:
                 return
-            from faster_whisper import WhisperModel
+            try:
+                from faster_whisper import WhisperModel
+            except (ImportError, OSError) as e:
+                # 典型场景：打包分发的机器缺少 Visual C++ 运行库，
+                # ctranslate2 的 DLL 无法加载（OSError / 找不到指定模块）
+                raise SttEnvironmentError(
+                    "葵酱的语音引擎加载失败，系统可能缺少 Visual C++ 运行库~\n"
+                    "请下载安装后重启应用（免费，微软官方）：\n"
+                    "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+                ) from e
             from voice.model_manager import get_current_model_id, get_model_local_dir, is_model_downloaded
 
             model_id = get_current_model_id()
@@ -153,7 +174,11 @@ class STTProvider:
             self._recorder.stop()
         self._recorder.start()
 
-    def stop_recording_and_transcribe(self, on_finished: Callable[[str], None]) -> None:
+    def stop_recording_and_transcribe(
+        self,
+        on_finished: Callable[[str], None],
+        on_error: Callable[[str], None] | None = None,
+    ) -> None:
         data = self._recorder.stop()
         if data is None or len(data) == 0:
             on_finished("")
@@ -165,6 +190,8 @@ class STTProvider:
         # 避免首次转录时在 UI 线程同步加载 WhisperModel 造成界面冻结数秒
         worker = TranscribeRunnable(self, _STT_TMP_PATH)
         worker.signals.finished.connect(on_finished)
+        if on_error is not None:
+            worker.signals.error.connect(on_error)
         QThreadPool.globalInstance().start(worker)
 
     def abort_recording(self) -> None:

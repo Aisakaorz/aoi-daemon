@@ -21,6 +21,7 @@ from PySide6.QtGui import (
 from core.bootstrap import APP_VERSION
 from ui.splash_screen import heart_path
 from utils.font_manager import cute_font
+from utils.paths import bundled
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -55,7 +56,7 @@ class AboutDialog(QDialog):
         icon_label.setFixedSize(44, 44)
         icon_label.setScaledContents(True)
         icon_label.setStyleSheet("background: transparent; border: none;")
-        icon_path = "resources/icons/app_icon.ico"
+        icon_path = bundled("resources", "icons", "app_icon.ico")
         if os.path.exists(icon_path):
             pixmap = QIcon(icon_path).pixmap(88, 88)
             if not pixmap.isNull():

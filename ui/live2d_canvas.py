@@ -16,6 +16,7 @@ from PySide6.QtGui import QMouseEvent
 from l2d.model_wrapper import Live2DModelWrapper
 from core.state_machine import StateMachine, CharacterState
 from utils.logger import get_logger
+from utils.paths import app_root
 
 logger = get_logger(__name__)
 
@@ -135,9 +136,9 @@ class Live2DCanvas(QOpenGLWidget):
             self.model_ready.emit()
             return
 
-        # 加载模型
-        model_path = os.path.abspath(
-            "resources/model/live2d-widget-model-haru/haru02.model.json"
+        # 模型入口文件（用户自备，放置于应用根目录 resources/model/ 下）
+        model_path = app_root(
+            "resources", "model", "live2d-widget-model-haru", "haru02.model.json"
         )
         if not os.path.exists(model_path):
             logger.error(f"模型文件不存在: {model_path}")
@@ -609,7 +610,7 @@ class Live2DCanvas(QOpenGLWidget):
         """
         if not self._sound_enabled:
             return
-        path = f"resources/model/live2d-widget-model-haru/snd/{filename}"
+        path = app_root("resources", "model", "live2d-widget-model-haru", "snd", filename)
         if not os.path.exists(path):
             return
         try:

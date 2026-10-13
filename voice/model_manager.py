@@ -13,6 +13,7 @@ from PySide6.QtCore import QObject, Signal, QThread, QTimer
 from tqdm import tqdm
 
 from utils.logger import get_logger
+from utils.paths import app_root
 
 logger = get_logger(__name__)
 
@@ -21,7 +22,7 @@ MODELS: dict[str, dict] = {
         "name": "Whisper Tiny",
         "size_str": "~75MB",
         "repo_id": "guillaumekln/faster-whisper-tiny",
-        "local_dir": os.path.abspath(os.path.join("resources", "whisper", "tiny")),
+        "local_dir": os.path.join(app_root("resources"), "whisper", "tiny"),
         "size_bytes": 75 * 1024 * 1024,
     },
 }

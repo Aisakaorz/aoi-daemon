@@ -910,7 +910,7 @@ class ChatPanel(QWidget):
         self._voice_btn.reset_style()  # 释放鼠标捕获
         self._restore_input_after_recording()
         if self._stt:
-            self._stt.stop_recording_and_transcribe(self._on_transcribe_done)
+            self._stt.stop_recording_and_transcribe(self._on_transcribe_done, self._on_transcribe_error)
 
     def _on_voice_released(self, valid: bool) -> None:
         """松开按钮：结束录音并转文字"""
@@ -930,7 +930,7 @@ class ChatPanel(QWidget):
         self._input.setPlaceholderText("💭 葵酱正在思考你说了什么...")
         self.show_typing_indicator()
         logger.info("提交语音转录任务")
-        self._stt.stop_recording_and_transcribe(self._on_transcribe_done)
+        self._stt.stop_recording_and_transcribe(self._on_transcribe_done, self._on_transcribe_error)
 
     def _restore_input_after_recording(self) -> None:
         """录音结束后恢复输入框状态"""
@@ -969,6 +969,12 @@ class ChatPanel(QWidget):
             logger.info(f"语音转文字成功: {text[:30]}...")
         else:
             self.add_message("葵酱：没有听清呢，请再试一次吧~", is_user=False)
+
+    def _on_transcribe_error(self, message: str) -> None:
+        """语音引擎环境错误（如缺 VC++ 运行库）：显示带安装引导的提示气泡"""
+        self.hide_typing_indicator()
+        self._input.setPlaceholderText("跟葵酱说点什么吧~ ✨")
+        self.add_message(message, is_user=False)
 
     # ---- 下载进度（常驻在输入框位置） ----
 

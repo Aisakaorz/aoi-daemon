@@ -10,10 +10,11 @@ import shutil
 from pathlib import Path
 
 from utils.logger import get_logger
+from utils.paths import app_root
 
 logger = get_logger(__name__)
 
-_UPLOAD_DIR = Path(__file__).parent.parent / "temp" / "uploads"
+_UPLOAD_DIR = Path(app_root("temp", "uploads"))
 
 
 class FileManager:

@@ -37,6 +37,7 @@ from PySide6.QtGui import (
 
 from utils.logger import get_logger
 from utils.font_manager import cute_font
+from utils.paths import bundled
 
 logger = get_logger(__name__)
 
@@ -219,7 +220,7 @@ class SplashScreen(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # 图标（窗口图标 + 徽章内图标）
-        icon_path = "resources/icons/app_icon.ico"
+        icon_path = bundled("resources", "icons", "app_icon.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 

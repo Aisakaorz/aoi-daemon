@@ -313,8 +313,19 @@
 
 ---
 
+### v0.1.22 —— PyInstaller 打包（Windows 单文件 exe）
+- [✔] aoi_daemon.spec: PyInstaller 配置——单文件 AoiDaemon.exe（console=False + 应用图标），打包 fonts/icons/sounds，排除用户自备的 Live2D 模型与语音模型；显式收集 live2d（l2d/__init__.py 动态改 sys.path，静态分析不可见）与 sounddevice/faster-whisper/ctranslate2 原生依赖
+- [✔] utils/paths.py: 新增路径统一模块——bundled()（只读内置资源，兼容 PyInstaller 解压目录 _MEIPASS）与 app_root()（可写数据，打包后为 exe 同级目录）；config.json、logs、temp/uploads、whisper 下载目录、模型/音效/图标路径全部从 CWD 相对改为锚定，从任意目录启动行为一致
+- [✔] main.py: stderr 重定向原子化保护（打包窗口程序 fd 2 无效时任何一步失败都安全跳过）；新增 crash.log 崩溃落盘 + faulthandler——打包后无控制台，异常与硬崩溃均可追查
+- [✔] l2d/__init__.py: PyInstaller 模式下跳过 sys.path 手术（此时 _project_root 是 _MEIPASS，移除会破坏 frozen 导入器定位且不存在命名冲突）
+- [✔] 验证：单文件 exe（153MB）全链路实测——子进程启动画面 → 模型加载 → 进入主循环 → 桌面宠物正常显示与空闲动作，进程树干净退出
+- [✔] 踩坑记录：venv 的 PYTHON*/VIRTUAL_ENV 变量会干扰打包 exe 的内嵌解释器（自动化测试须净化环境模拟双击）；强杀的 onefile 进程会残留 _MEI 解压目录；faulthandler 启动即创建空 crash.log，不能以"文件存在"为崩溃判据
+- [✔] 分发健壮性：语音引擎缺 VC++ 运行库时不再静默失败——新增 SttEnvironmentError 与 error 信号通道，转录线程捕获后向用户弹出带微软官方下载链接（vc_redist.x64.exe）的安装引导气泡；模拟 OSError 注入验证链路正常
+
+---
+
 ### v0.2 —— 打包分发
-- [ ] PyInstaller 打包（Windows .exe）
+- [✔] PyInstaller 打包（Windows .exe）→ v0.1.22 已完成（单文件 exe，排除模型资源，README 含打包与分发说明）
 - [ ] Py2app 打包（macOS .app）
 - [ ] 打包时排除 resources/model/，README 注明需用户自行放置模型
 

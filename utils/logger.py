@@ -8,6 +8,8 @@ import logging
 import os
 import sys
 
+from utils.paths import app_root
+
 # 日志级别映射
 _LEVEL_MAP = {
     "DEBUG": logging.DEBUG,
@@ -27,9 +29,10 @@ def _get_file_handler() -> logging.FileHandler:
     """获取文件 Handler（WARNING 及以上），首次调用时创建"""
     global _file_handler
     if _file_handler is None:
-        os.makedirs("logs", exist_ok=True)
+        log_dir = app_root("logs")
+        os.makedirs(log_dir, exist_ok=True)
         _file_handler = logging.FileHandler(
-            "logs/aoi.log", encoding="utf-8", mode="a"
+            os.path.join(log_dir, "aoi.log"), encoding="utf-8", mode="a"
         )
         _file_handler.setLevel(logging.WARNING)
         _file_handler.setFormatter(

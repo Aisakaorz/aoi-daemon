@@ -166,6 +166,23 @@ python main.py
 | **滚轮上滚** | 在消息区域滚轮向上滚动查看历史消息，点击 ▼ 按钮或滚轮向下回到底部 |
 | **拖拽释放** | 角色靠近任务栏时自动吸附，远离时不吸附 |
 
+## 📦 打包（Windows）
+
+项目使用 PyInstaller 打包为单文件 exe：
+
+```bash
+pip install pyinstaller
+.venv\Scripts\pyinstaller.exe aoi_daemon.spec --noconfirm
+```
+
+产物为 `dist\AoiDaemon.exe`（已内置萌字体与应用图标，无需安装 Python）。
+
+**分发时请注意：**
+
+- **Live2D 模型不随包分发**：将模型文件夹放到 `AoiDaemon.exe` 同级的 `resources\model\` 下（目录结构与开发时一致）。首次运行缺少模型时会弹出引导提示
+- 语音转文字模型（~75MB）可在应用内通过菜单下载，或手动放到 exe 同级的 `resources\whisper\tiny\`
+- 配置文件 `config.json`、日志 `logs\`、上传临时文件 `temp\` 均生成在 exe 同级目录
+
 ## 📁 项目结构
 
 ```
@@ -242,7 +259,8 @@ aoi-daemon/
 | v0.1.19 | 修复退出时 stdin 管道最终化报错 | ✅ |
 | v0.1.20 | 内置萌字体（ZCOOL 站酷快乐体，跨设备一致显示） | ✅ |
 | v0.1.21 | 整体视觉统一（菜单萌化 + 关于卡片 + 气泡尾巴） | ✅ |
-| 下一步 | PyInstaller 打包（Windows .exe，排除模型资源） | 📋 |
+| v0.1.22 | PyInstaller 打包（单文件 exe + 路径锚定统一） | ✅ |
+| 下一步 | macOS 打包（Py2app，待验证） | 📋 |
 
 ## 📄 模型与资源声明
 

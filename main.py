@@ -23,27 +23,34 @@ import sys
 # FFmpeg 直接从 C 运行时写 fd 2 输出 MP3 解析日志，Python 层无法拦截。
 # 但 logger 使用 sys.stdout，不受影响；Python 异常我们通过恢复 sys.stderr
 # 绑定到原始 fd 来保留。
+# 打包后的窗口程序（console=False）没有 fd 2，此时跳过重定向。
 # ------------------------------------------------------------------
-_original_stderr_fd = os.dup(2)
-_devnull = os.open(os.devnull, os.O_WRONLY)
-os.dup2(_devnull, 2)
-os.close(_devnull)
-
-# 恢复 Python 层的 sys.stderr，确保异常和 print(..., file=sys.stderr) 正常显示
-sys.stderr = io.TextIOWrapper(
-    os.fdopen(_original_stderr_fd, "wb"), line_buffering=True
-)
+_original_stderr_fd = None
+try:
+    _original_stderr_fd = os.dup(2)
+    # 恢复 Python 层的 sys.stderr，确保异常和 print(..., file=sys.stderr) 正常显示
+    sys.stderr = io.TextIOWrapper(
+        os.fdopen(_original_stderr_fd, "wb"), line_buffering=True
+    )
+    _original_stderr_fd = None  # 所有权已移交给 sys.stderr
+    _devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(_devnull, 2)
+    os.close(_devnull)
+except OSError:
+    # 任何一步失败（如无控制台的打包窗口程序）都安全跳过
+    pass
 
 # 同时屏蔽 Qt 自身的多媒体日志
 os.environ["QT_LOGGING_RULES"] = "qt.multimedia.ffmpeg=false"
 
 from utils import config_manager as cfg
 from utils.logger import get_logger
+from utils.paths import app_root, bundled
 
 logger = get_logger(__name__)
 
-# resources/model/ 的绝对路径（以本文件为基准）
-_MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "resources", "model")
+# resources/model/ 路径（用户自备模型，置于应用根目录）
+_MODEL_DIR = app_root("resources", "model")
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -69,7 +76,7 @@ def _show_missing_model_dialog() -> None:
     msg.setStandardButtons(QMessageBox.StandardButton.Ok)
 
     # 设置应用图标
-    icon_path = "resources/icons/app_icon.ico"
+    icon_path = bundled("resources", "icons", "app_icon.ico")
     if os.path.exists(icon_path):
         msg.setWindowIcon(QIcon(icon_path))
 
@@ -151,11 +158,37 @@ def _launch_splash_child():
 
 
 def main() -> int:
-    """应用入口"""
+    """应用入口（带崩溃落盘：打包后无控制台，异常与硬崩溃写入 exe 同级 crash.log）"""
     # 打包模式下作为启动画面子进程运行（须在重型导入之前分流）
     if "--splash-child" in sys.argv:
         from splash_child import run_splash_child
         return run_splash_child()
+
+    try:
+        return _main_impl()
+    except Exception:
+        _write_crash_log()
+        raise
+
+
+def _write_crash_log() -> None:
+    """把当前异常 traceback 追加写入 crash.log（静默失败不影响退出）"""
+    import traceback
+    try:
+        with open(app_root("crash.log"), "a", encoding="utf-8") as f:
+            f.write(traceback.format_exc() + "\n")
+    except Exception:
+        pass
+
+
+def _main_impl() -> int:
+    # faulthandler：硬崩溃（段错误等）也落盘，便于排查打包/环境问题
+    import faulthandler
+    try:
+        _fh = open(app_root("crash.log"), "a", encoding="utf-8", buffering=1)
+        faulthandler.enable(_fh)
+    except Exception:
+        pass
 
     # 先加载用户配置（窗口位置、角色大小等）
     cfg.load()

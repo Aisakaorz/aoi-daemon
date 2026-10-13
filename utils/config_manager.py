@@ -11,11 +11,10 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# 配置文件放在项目根目录，与 main.py 同级
-_CONFIG_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "config.json",
-)
+from utils.paths import app_root
+
+# 配置文件放在应用运行根目录（打包后为 exe 所在目录）
+_CONFIG_PATH = app_root("config.json")
 
 _data: dict = {}
 

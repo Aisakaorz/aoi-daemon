@@ -379,8 +379,14 @@ AoiDaemon/
 - 关于对话框卡片化：新增 `ui/about_dialog.py`（徽章 + 圆角卡片 + 版本号），`core/bootstrap.py` 提供 APP_VERSION
 - 聊天气泡：圆角加大 + galgame 小尾巴（AI 左下 / 用户右下）
 
+### v0.1.22 —— PyInstaller 打包（Windows 单文件 exe）
+- 单文件 `AoiDaemon.exe`（console=False、应用图标、~153MB）：打包 fonts/icons/sounds，排除用户自备模型与语音模型（README 含分发说明）
+- 新增 `utils/paths.py` 统一路径锚定——bundled() 兼容 PyInstaller 解压目录，app_root() 指向可写数据目录，全应用资源路径不再依赖 CWD
+- 新增 crash.log 崩溃落盘 + faulthandler（打包后无控制台可追查）
+- 打包踩坑（详见 TASK）：live2d 动态 sys.path 需显式收集、窗口程序 fd 2 无效需原子保护、frozen 模式跳过 l2d 的 sys.path 手术、venv 环境变量干扰内嵌解释器
+
 ### v0.2 —— 打包分发
-- PyInstaller 打包（Windows .exe）
+- PyInstaller 打包（Windows .exe）：v0.1.22 已完成
 - Py2app 打包（macOS .app）
 - 打包时排除 resources/model/，README 注明需用户自行放置模型
 
@@ -437,3 +443,4 @@ class Live2DModelWrapper:
 16. **Live2D 模型版权**：开源仓库不放完整模型。本项目演示使用的 haru 模型来源于 hexo-helper-live2d 项目，版权归属 Live2D Inc.。README 需注明模型文件需用户自行提供。
 17. **macOS 权限**：首次运行可能需授予麦克风权限（STT）。
 18. **live2d 绘制后的 GL 状态污染**：live2d-py 绘制模型后会遗留 `GL_CULL_FACE` 开启且 `glFrontFace(GL_CW)`，以及 active 纹理单元停在 1（遮罩采样）。在模型绘制后做自定义 GL 绘制（如超采样降采样 quad）必须：先 `glDisable(GL_CULL_FACE)`、`glActiveTexture(GL_TEXTURE0)`；且核心上下文（Qt6 默认）中固定管线 glBegin 静默无效，需使用着色器 + VAO。
+19. **PyInstaller 打包**：live2d 包经 l2d/__init__.py 动态修改 sys.path 导入，静态分析不可见，需在 spec 中 collect_submodules 显式收集；窗口程序（console=False）没有 fd 2，stderr 重定向必须原子化保护；frozen 模式下 l2d 的 sys.path 手术会破坏 _MEIPASS 模块定位须跳过；venv 的 PYTHON*/VIRTUAL_ENV 变量会干扰 exe 内嵌解释器，自动化测试须净化环境模拟双击。
