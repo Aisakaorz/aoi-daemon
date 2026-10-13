@@ -288,6 +288,12 @@
 
 ---
 
+### v0.1.19 —— 修复退出时 stdin 管道最终化报错
+- [✔] main.py: 修复右键退出后解释器退出阶段 GC 最终化子进程 stdin 管道写端（BufferedWriter）抛出 OSError(EINVAL) 的问题——_SplashChildProxy.terminate() 在子进程结束后显式关闭 stdin 管道；taskkill 进程树仅在子进程仍未退出时执行
+- [✔] 验证：启动 → terminate → 进程退出无残留报错，exit code 0
+
+---
+
 ### v0.2 —— 打包分发
 - [ ] PyInstaller 打包（Windows .exe）
 - [ ] Py2app 打包（macOS .app）

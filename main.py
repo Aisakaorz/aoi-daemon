@@ -90,24 +90,32 @@ class _SplashChildProxy:
             pass  # 子进程已退出或管道断开时忽略
 
     def terminate(self) -> None:
-        """退出兜底：通知关闭 → 等待 → 结束整个进程树 → 强杀"""
+        """退出兜底：通知关闭 → 等待 → 结束整个进程树 → 强杀 → 关闭 stdin 管道。
+
+        必须显式关闭 stdin 管道写端：否则解释器退出阶段 GC 最终化这个
+        BufferedWriter 时会因句柄半失效抛出 OSError(EINVAL)"""
         self.request_close()
         try:
             self._proc.wait(timeout=3)
-            return
         except Exception:
             pass
         # 结束进程树（兼容解释器重定向器派生的中间进程残留）
-        try:
-            subprocess.run(
-                ["taskkill", "/PID", str(self._proc.pid), "/T", "/F"],
-                capture_output=True,
-            )
-        except Exception:
+        if self._proc.poll() is None:
             try:
-                self._proc.kill()
+                subprocess.run(
+                    ["taskkill", "/PID", str(self._proc.pid), "/T", "/F"],
+                    capture_output=True,
+                )
             except Exception:
-                pass
+                try:
+                    self._proc.kill()
+                except Exception:
+                    pass
+        try:
+            if self._proc.stdin is not None:
+                self._proc.stdin.close()
+        except Exception:
+            pass
 
 
 def _launch_splash_child():
