@@ -96,6 +96,10 @@ class _SplashChildProxy:
         except Exception:
             pass  # 子进程已退出或管道断开时忽略
 
+    def exited(self) -> bool:
+        """子进程是否已退出（用于判断启动画面是否真的在显示）"""
+        return self._proc.poll() is not None
+
     def terminate(self) -> None:
         """退出兜底：通知关闭 → 等待 → 结束整个进程树 → 强杀 → 关闭 stdin 管道。
 
@@ -125,6 +129,25 @@ class _SplashChildProxy:
             pass
 
 
+def _open_splash_child_log():
+    """打开启动画面子进程的日志文件（失败返回 None，不影响启动）"""
+    import datetime
+
+    try:
+        log_dir = app_root("logs")
+        os.makedirs(log_dir, exist_ok=True)
+        f = open(
+            os.path.join(log_dir, "splash_child.log"),
+            "w",
+            encoding="utf-8",
+            buffering=1,
+        )
+        f.write(f"--- 启动画面子进程 {datetime.datetime.now():%Y-%m-%d %H:%M:%S} ---\n")
+        return f
+    except Exception:
+        return None
+
+
 def _launch_splash_child():
     """启动子进程启动画面（无需 Qt，可在主进程任何导入之前调用）。
 
@@ -143,14 +166,25 @@ def _launch_splash_child():
             # 也不能换 sys._base_executable（脱离 venv 后找不到 PySide6）
             cmd = [sys.executable, os.path.join(_ROOT, "splash_child.py")]
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=creationflags,
+        # 子进程的 stdout/stderr 必须落盘：启动画面是独立进程，
+        # 它一旦在导入/绘制阶段崩溃，界面就是"什么都不出现"，
+        # 而丢掉 stderr 会让这类故障完全不可见（无任何线索可查）。
+        child_log = _open_splash_child_log()
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=child_log or subprocess.DEVNULL,
+                stderr=child_log or subprocess.DEVNULL,
+                creationflags=creationflags,
+            )
+        finally:
+            # 父进程不再持有句柄（子进程已继承），避免句柄泄漏
+            if child_log is not None:
+                child_log.close()
+        logger.info(
+            f"子进程启动画面已启动（子进程日志: {app_root('logs', 'splash_child.log')}）"
         )
-        logger.info("子进程启动画面已启动")
         return _SplashChildProxy(proc)
     except Exception as e:
         logger.warning(f"子进程启动画面启动失败，回退进程内启动画面: {e}")

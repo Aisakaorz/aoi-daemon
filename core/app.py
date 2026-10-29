@@ -46,7 +46,12 @@ class AoiDaemonApp:
             self._model = Live2DModelWrapper()
             self._state = StateMachine()
 
-            # 2. 创建主窗口（传入启动画面，模型加载完成后自动关闭）
+            # 2. 启动画面子进程如果在启动阶段就崩了（PySide6 导入失败、
+            #    环境变量污染等），主进程此前无从得知——表现为"完全没有启动画面"。
+            #    这里补上检测并回退到进程内启动画面，至少让加载过程可见。
+            self._ensure_splash_alive()
+
+            # 3. 创建主窗口（传入启动画面，模型加载完成后自动关闭）
             self._window = MainWindow(self._model, self._state, splash_screen=self._splash)
             self._window.show()
 
@@ -56,3 +61,23 @@ class AoiDaemonApp:
         except Exception as e:
             logger.exception(f"应用启动失败: {e}")
             return 1
+
+    def _ensure_splash_alive(self) -> None:
+        """启动画面子进程已退出时，回退为进程内启动画面（并留下可查的告警）"""
+        if self._splash is None:
+            return
+        died = getattr(self._splash, "exited", None)
+        if not callable(died) or not died():
+            return
+
+        logger.warning(
+            "启动画面子进程已提前退出，回退进程内启动画面（详情见 logs/splash_child.log）"
+        )
+        try:
+            fallback = SplashScreen()
+            fallback.show()
+            self._app.processEvents()
+            self._splash = fallback
+        except Exception as e:
+            logger.warning(f"进程内启动画面创建失败，跳过: {e}")
+            self._splash = None

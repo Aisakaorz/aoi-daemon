@@ -7,6 +7,8 @@ VTuber 直播间待机风格：漂浮爱心/星星粒子、待机浮动徽章头
 """
 import math
 import os
+import sys
+from typing import Optional
 
 from PySide6.QtWidgets import (
     QWidget,
@@ -189,16 +191,30 @@ class SplashScreen(QWidget):
     """
     VTuber 待机风格启动画面
     - 无边框、置顶、抗锯齿自绘圆角卡片（透明背景）、居中显示
-    - 加载完成后由外部调用 request_close()（最短展示 1.2s + 淡出后关闭）
+    - 加载完成后由外部调用 request_close()（最短展示 4s + 淡出后关闭）
     """
 
     _CORNER_RADIUS = 20
     # 卡片区域（四周留出空间手绘柔影与缎带）
     _CARD_MARGIN = 16
-    # 最短展示时长：加载极快时也不闪退，保证用户看清启动画面（含淡出）
-    _MIN_VISIBLE_MS = 1200
+    # 最短展示时长（从窗口首次显示开始计时）：模型加载极快时也要让用户
+    # 看清启动画面。旧值 1200ms 是从窗口"创建"起算，减去子进程启动和
+    # 淡出时间后实际可见不足 600ms，观感上就是一帧闪过。
+    # 调试：环境变量 AOI_SPLASH_HOLD_MS 可临时覆盖（如 15000 秒级确认窗口是否可见）
+    _MIN_VISIBLE_MS = 4000
     # 标题扫光周期
     _SWEEP_PERIOD_MS = 2200
+
+    @classmethod
+    def min_visible_ms(cls) -> int:
+        """最短展示时长（毫秒），支持 AOI_SPLASH_HOLD_MS 环境变量覆盖"""
+        raw = os.environ.get("AOI_SPLASH_HOLD_MS")
+        if raw:
+            try:
+                return max(0, int(raw))
+            except ValueError:
+                logger.warning(f"AOI_SPLASH_HOLD_MS 不是合法整数，忽略: {raw!r}")
+        return cls._MIN_VISIBLE_MS
 
     def __init__(self, parent=None):
         super().__init__(
@@ -299,6 +315,17 @@ class SplashScreen(QWidget):
         self._bubble.adjustSizeToContent()
         layout.addWidget(self._bubble, alignment=Qt.AlignmentFlag.AlignCenter)
 
+        # 加载文案分阶段推进：让短暂等待看起来是流程，而不是卡在固定文案上
+        self._status_stages = (
+            "葵酱正在梳妆打扮，请稍候~",
+            "正在唤醒使魔契约…",
+            "马上就好啦，再等一下下~",
+        )
+        self._stage_index = 0
+        self._stage_timer = QTimer(self)
+        self._stage_timer.timeout.connect(self._advance_status)
+        self._stage_timer.start(900)
+
         layout.addSpacing(10)
 
         # 糖针纹滚动进度条
@@ -308,6 +335,11 @@ class SplashScreen(QWidget):
         self._center_on_screen()
         self._elapsed = QElapsedTimer()
         self._elapsed.start()
+        # 首次显示时刻：最短展示时长以"用户真正看到画面的时刻"为准，
+        # 而不是窗口创建时刻（子进程启动/首次绘制耗时不应计入展示时间）
+        self._visible_since: Optional[QElapsedTimer] = None
+        self._paint_count = 0
+        self._closing = False
 
         # 待机浮动：墙钟正弦驱动（比 QPropertyAnimation yoyo 更顺滑且无跳变）
         # 徽章与 LIVE 标同步浮动
@@ -332,6 +364,14 @@ class SplashScreen(QWidget):
         self._badge.move(self._badge_base.x(), self._badge_base.y() - dy)
         self._live.move(self._live_base.x(), self._live_base.y() - dy)
 
+    def _advance_status(self) -> None:
+        """推进气泡文案（走完全部阶段后停止计时器）"""
+        self._stage_index += 1
+        if self._stage_index >= len(self._status_stages):
+            self._stage_timer.stop()
+            return
+        self._bubble.setText(self._status_stages[self._stage_index])
+
     # ---- 自绘：卡片、柔影、缎带、漂浮粒子、闪烁星星 ----
 
     def _card_rect(self) -> QRectF:
@@ -340,11 +380,164 @@ class SplashScreen(QWidget):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
+        if self._visible_since is None:
+            self._visible_since = QElapsedTimer()
+            self._visible_since.start()
+            logger.info(f"启动画面首次显示: geom={self.geometry().getRect()}")
+            # 注意：这里**不要**做 windowOpacity 淡入。
+            # macOS 下 Qt 对 WA_TranslucentBackground 窗口的 windowOpacity 属性与
+            # NSWindow.alphaValue 会失同步：Qt 侧属性/动画显示 1.0，系统层面窗口却
+            # 永久停在 alpha=0（CGWindowList 实测 alpha=0.0），表现为"窗口 visible
+            # 且持续绘制，但肉眼完全看不见"。启动卡片停留数秒，硬切出现已足够醒目。
+            try:
+                self.setWindowOpacity(1.0)
+            except Exception:
+                pass
+            # 兜底：任何路径上若被置成半透明，到点无条件恢复
+            QTimer.singleShot(400, self._force_opaque)
+            QTimer.singleShot(1000, self._log_state)
+            # 透明置顶窗口可能被其它应用的前台窗口压住，显示后主动前置
+            self.raise_()
+            self._bring_to_front()
+            # 主进程随后会创建自己的置顶窗口（mac 上同为 layer 8，Windows 上同为
+            # HWND_TOPMOST），几个时间点各前置一次，确保启动画面始终没被压到后面
+            for delay in (300, 1000, 2000):
+                self._later(delay, self._bring_to_front)
         self._bubble.adjustSizeToContent()
         # 布局稳定后再弹入，避免动画起点取到错误几何
         QTimer.singleShot(60, self._bubble.pop_in)
 
+    def _later(self, delay_ms: int, fn) -> None:
+        """延时调用（定时器以 self 为父对象，窗口销毁时自动取消）"""
+        t = QTimer(self)
+        t.setSingleShot(True)
+        t.timeout.connect(fn)
+        t.start(delay_ms)
+
+    def _bring_to_front(self) -> None:
+        """把启动画面强制压到最前（跨进程，按平台分派）
+
+        Qt 的 raise_() 只调整本应用内部的层级；而启动画面运行在独立子进程，
+        主进程随后创建的置顶窗口会盖在它上面（两者都是 WindowStaysOnTopHint）。
+        """
+        if sys.platform == "darwin":
+            self._bring_to_front_macos()
+        elif sys.platform == "win32":
+            self._bring_to_front_windows()
+
+    def _bring_to_front_windows(self) -> None:
+        """Windows：把窗口重新压到置顶层（HWND_TOPMOST）最上方
+
+        Windows 的同层置顶窗口按创建顺序排列，主窗口晚于启动画面创建，
+        小屏幕下两者矩形相交时会把卡片压住。SetWindowPos 配上
+        SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE 只改层级，不移动/缩放/抢焦点。
+        """
+        try:
+            import ctypes
+
+            user32 = ctypes.windll.user32
+            user32.SetWindowPos.restype = ctypes.c_bool
+            user32.SetWindowPos.argtypes = [
+                ctypes.c_void_p, ctypes.c_void_p,
+                ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                ctypes.c_uint,
+            ]
+            # HWND_TOPMOST 是 (HWND)-1：c_void_p 会按指针宽度存成全 1
+            # （64 位 = 0xFFFF_FFFF_FFFF_FFFF，32 位 = 0xFFFF_FFFF），
+            # 不能用裸 int，否则会被 argtypes 当成 c_int 截断
+            hwnd_topmost = ctypes.c_void_p(-1)
+            swp_nosize, swp_nomove, swp_noactivate = 0x0001, 0x0002, 0x0010
+            user32.SetWindowPos(
+                ctypes.c_void_p(int(self.winId())),
+                hwnd_topmost,
+                0, 0, 0, 0,
+                swp_nosize | swp_nomove | swp_noactivate,
+            )
+        except Exception as e:
+            logger.debug(f"Windows 启动画面置顶失败: {e}")
+
+    def _bring_to_front_macos(self) -> None:
+        """macOS：无视应用激活状态强制前置，并允许出现在全屏 Space 之上
+
+        Qt 的 raise_() 只调整本应用内部的窗口层级；而启动画面运行在独立子进程，
+        主进程随后创建的置顶窗口会盖在它上面。更关键的是：若用户此刻正处在某个
+        全屏应用所在的 Space（例如全屏的编辑器），新进程的窗口默认不会显示在那里，
+        表现就是"日志说 visible=True，屏幕上看不到"。这里直接设置 NSWindow 的
+        集合行为（加入所有 Space + 全屏辅助窗口）并 orderFrontRegardless。
+        """
+        try:
+            import ctypes
+            import ctypes.util
+
+            objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+            sel = objc.sel_registerName
+            sel.restype = ctypes.c_void_p
+            sel.argtypes = [ctypes.c_char_p]
+
+            def msg(restype, *argtypes):
+                fn = objc.objc_msgSend
+                fn.restype = restype
+                fn.argtypes = argtypes
+                return fn
+
+            view = ctypes.c_void_p(int(self.winId()))
+            win = msg(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)(
+                view, sel(b"window")
+            )
+            if not win:
+                return
+            # NSPanel: hidesOnDeactivate = NO
+            # Qt::Tool 窗口在 macOS 上是 NSPanel，默认 hidesOnDeactivate=YES：
+            # 主进程随后创建并激活自己的窗口时，启动画面会被系统自动隐藏
+            # （实测 1.5s 内从在屏窗口列表消失），这正是"闪一下就没"的直接原因。
+            msg(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_byte)(
+                win, sel(b"setHidesOnDeactivate:"), ctypes.c_byte(0)
+            )
+            # NSWindowCollectionBehavior: CanJoinAllSpaces(1) | Stationary(16) | FullScreenAuxiliary(256)
+            msg(None, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong)(
+                win, sel(b"setCollectionBehavior:"), ctypes.c_ulong(1 | 16 | 256)
+            )
+            msg(None, ctypes.c_void_p, ctypes.c_void_p)(
+                win, sel(b"orderFrontRegardless")
+            )
+        except Exception as e:
+            logger.debug(f"macOS 启动画面前置失败: {e}")
+
+    def _force_opaque(self) -> None:
+        """兜底：把窗口真实不透明度拉回 1.0
+
+        Qt 会缓存 windowOpacity 属性值；若缓存已是 1.0 而底层 NSWindow.alphaValue
+        仍停在 0，直接设 1.0 会被判定为"无变化"而跳过下发。因此先设 0.98 再设 1.0，
+        强制产生两次真实变更（间隔 0ms，肉眼不可见）。
+
+        该缺陷只存在于 macOS（Qt 属性与 NSWindow.alphaValue 失同步）。Windows 上
+        windowOpacity 与分层窗口 alpha 是同一套状态，值已是 1.0 时无需下发，
+        避免凭空制造两次透明度变更引发闪动。
+        """
+        try:
+            value = self.windowOpacity()
+            if value < 1.0:
+                logger.warning(f"窗口不透明度异常（{value:.2f}），强制恢复为 1.0")
+            elif sys.platform != "darwin":
+                return  # 非 macOS：读数可信且已不透明，无需干预
+            self.setWindowOpacity(0.98)
+            self.setWindowOpacity(1.0)
+        except Exception as e:
+            logger.debug(f"恢复不透明度失败: {e}")
+
+    def _log_state(self) -> None:
+        """显示后 1 秒的状态快照（排查"窗口在屏却看不见"）"""
+        try:
+            logger.info(
+                f"启动画面状态@1s: visible={self.isVisible()} "
+                f"opacity={self.windowOpacity():.2f} 绘制帧数={self._paint_count} "
+                f"geom={self.geometry().getRect()}"
+            )
+        except Exception:
+            pass
+
     def paintEvent(self, event) -> None:
+        self._paint_count += 1
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
@@ -517,25 +710,52 @@ class SplashScreen(QWidget):
     # ---- 关闭流程 ----
 
     def request_close(self) -> None:
-        """加载完成后调用：距创建不足最短展示时长时稍候片刻，淡出后关闭"""
-        remaining = self._MIN_VISIBLE_MS - self._elapsed.elapsed()
+        """加载完成后调用：自"首次显示"起不足最短展示时长时稍候片刻，再淡出关闭
+
+        幂等：重复调用（如加载信号多次触发）不会叠加关闭流程。
+        """
+        if self._closing:
+            return
+        self._closing = True
+
+        source = self._visible_since or self._elapsed
+        remaining = self.min_visible_ms() - source.elapsed()
         if remaining > 0:
+            logger.info(f"启动画面最短展示：还需 {remaining}ms（关闭指令已收到）")
             QTimer.singleShot(int(remaining), self._fade_out_and_close)
         else:
+            logger.info("启动画面最短展示已满足，立即淡出")
             self._fade_out_and_close()
 
     def _fade_out_and_close(self) -> None:
         """淡出动画结束后关闭（窗口透明属性支持 windowOpacity）"""
+        logger.info("启动画面开始淡出")
         try:
             anim = QPropertyAnimation(self, b"windowOpacity", self)
             anim.setDuration(220)
             anim.setStartValue(1.0)
             anim.setEndValue(0.0)
-            anim.finished.connect(self.close)
+            anim.finished.connect(self._on_fade_finished)
             anim.start()
             self._fade_anim = anim  # 持有引用防止被 GC 回收
+            # 兜底：动画若未触发 finished，到点直接关闭，避免残留不可见窗口
+            # （用 self 作为父对象的 QTimer，窗口销毁时定时器一并销毁）
+            fallback = QTimer(self)
+            fallback.setSingleShot(True)
+            fallback.timeout.connect(self._on_fade_finished)
+            fallback.start(500)
         except Exception:
             self.close()
+
+    def _on_fade_finished(self) -> None:
+        """淡出结束（或兜底计时到点）后关闭；重复回调只生效一次"""
+        if not self.isVisible():
+            return
+        logger.info(
+            f"启动画面关闭（自首次显示起 "
+            f"{self._visible_since.elapsed() if self._visible_since else -1}ms）"
+        )
+        self.close()
 
     def set_status(self, text: str) -> None:
         """更新加载状态文案（气泡内文本）"""

@@ -3,6 +3,7 @@
 Live2D OpenGL 渲染画布
 基于 QOpenGLWidget，负责模型渲染、鼠标交互映射、视线跟踪、呼吸动画
 """
+import ctypes
 import sys
 import math
 import os
@@ -20,8 +21,19 @@ from utils.paths import app_root
 
 logger = get_logger(__name__)
 
-# 降采样全屏四边形着色器（核心上下文可用；失败时回退固定管线）
-_QUAD_VS = """#version 330 core
+# ------------------------------------------------------------------
+# 降采样全屏四边形着色器（多版本，编译顺序 330 → 120）
+#
+# 平台差异（macOS 白屏的根因）：macOS 上 Qt 默认创建的是 OpenGL 2.1
+# 兼容上下文，GLSL 上限为 1.20，`#version 330` 必定编译失败；Windows
+# 显卡驱动的兼容上下文通常能上到 330+，所以同一份代码在 Windows 正常、
+# 在 mac 上每帧编译失败。
+#
+# live2d-py v2 自身的着色器就是 "#version 120"
+# （LAppModel.LoadModelJson 默认前缀），因此 120 版本在本项目的运行环境
+# 下必然可用；330 版本保留给核心上下文环境。
+# ------------------------------------------------------------------
+_QUAD_VS_330 = """#version 330 core
 layout(location = 0) in vec2 a_pos;
 layout(location = 1) in vec2 a_uv;
 out vec2 v_uv;
@@ -30,7 +42,7 @@ void main() {
     gl_Position = vec4(a_pos, 0.0, 1.0);
 }
 """
-_QUAD_FS = """#version 330 core
+_QUAD_FS_330 = """#version 330 core
 in vec2 v_uv;
 out vec4 frag_color;
 uniform sampler2D u_texture;
@@ -38,6 +50,28 @@ void main() {
     frag_color = texture(u_texture, v_uv);
 }
 """
+_QUAD_VS_120 = """#version 120
+attribute vec2 a_pos;
+attribute vec2 a_uv;
+varying vec2 v_uv;
+void main() {
+    v_uv = a_uv;
+    gl_Position = vec4(a_pos, 0.0, 1.0);
+}
+"""
+_QUAD_FS_120 = """#version 120
+uniform sampler2D u_texture;
+varying vec2 v_uv;
+void main() {
+    gl_FragColor = texture2D(u_texture, v_uv);
+}
+"""
+
+# (显示名, 顶点着色器源码, 片元着色器源码)——按顺序尝试，第一个成功者生效
+_QUAD_SHADER_VARIANTS = (
+    ("GLSL 330", _QUAD_VS_330, _QUAD_FS_330),
+    ("GLSL 120", _QUAD_VS_120, _QUAD_FS_120),
+)
 
 
 class Live2DCanvas(QOpenGLWidget):
@@ -113,6 +147,9 @@ class Live2DCanvas(QOpenGLWidget):
         self._quad_prog = None
         self._quad_vao = 0
         self._quad_vbo = 0
+        # 全部着色器版本都编译失败时置 True：永久走固定管线，且只提示一次
+        # （旧实现在失败时不缓存，导致每帧重编译 + 每帧刷一条 WARNING）
+        self._quad_disabled = False
 
         # 定时器：每 30ms 更新一次鼠标悬停状态（响应更快，避免上下区域穿透延迟）
         self._hover_timer = QTimer(self)
@@ -288,48 +325,99 @@ class Live2DCanvas(QOpenGLWidget):
         # live2d 绘制后可能遗留 GL_CULL_FACE + GL_CW 正面状态，
         # quad 为 CCW 绕序会被整体背面剔除，必须先关闭面剔除
         gl.glDisable(gl.GL_CULL_FACE)
-        try:
-            self._draw_quad_shader(gl)
-        except Exception as e:
-            logger.warning(f"quad 着色器路径失败，回退固定管线: {e}")
+        if not self._draw_quad_shader(gl):
             self._draw_quad_fixed(gl)
         gl.glBindTexture(gl.GL_TEXTURE_2D, 0)
         gl.glDisable(gl.GL_BLEND)
         gl.glActiveTexture(prev_unit)
 
-    def _draw_quad_shader(self, gl) -> None:
-        """着色器 + VAO 绘制全屏 quad（核心/现代上下文）"""
+    def _draw_quad_shader(self, gl) -> bool:
+        """用着色器 + VBO(/VAO) 绘制全屏 quad
+        :return: True 表示已绘制；False 表示着色器不可用，调用方应改用固定管线"""
         prog = self._ensure_quad_program(gl)
+        if prog is None:
+            return False
+
         gl.glUseProgram(prog)
-        gl.glBindVertexArray(self._quad_vao)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self._quad_vbo)
+        if self._quad_vao:
+            gl.glBindVertexArray(self._quad_vao)
+        else:
+            # GL 2.1 兼容上下文（macOS 默认）没有 VAO：每次绘制显式声明顶点属性
+            stride = 4 * 4
+            gl.glEnableVertexAttribArray(0)
+            gl.glVertexAttribPointer(0, 2, gl.GL_FLOAT, gl.GL_FALSE, stride, ctypes.c_void_p(0))
+            gl.glEnableVertexAttribArray(1)
+            gl.glVertexAttribPointer(1, 2, gl.GL_FLOAT, gl.GL_FALSE, stride, ctypes.c_void_p(8))
         gl.glDrawArrays(gl.GL_TRIANGLES, 0, 6)
-        gl.glBindVertexArray(0)
+        if self._quad_vao:
+            gl.glBindVertexArray(0)
+        else:
+            gl.glDisableVertexAttribArray(0)
+            gl.glDisableVertexAttribArray(1)
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
         gl.glUseProgram(0)
+        return True
 
     def _ensure_quad_program(self, gl):
-        """编译/链接降采样 quad 着色器并创建 VAO/VBO（惰性，只执行一次）"""
+        """编译/链接降采样 quad 着色器（惰性，只尝试一次）
+
+        按 _QUAD_SHADER_VARIANTS 顺序尝试多个 GLSL 版本；全部失败时置
+        _quad_disabled 并只警告一次，之后每帧直接走固定管线，避免
+        重复编译着色器与日志刷屏。
+        :return: program id；不可用时返回 None
+        """
         if self._quad_prog is not None:
             return self._quad_prog
-        vs = gl.glCreateShader(gl.GL_VERTEX_SHADER)
-        gl.glShaderSource(vs, _QUAD_VS)
-        gl.glCompileShader(vs)
-        if not gl.glGetShaderiv(vs, gl.GL_COMPILE_STATUS):
-            raise RuntimeError(f"quad 顶点着色器编译失败: {gl.glGetShaderInfoLog(vs)}")
-        fs = gl.glCreateShader(gl.GL_FRAGMENT_SHADER)
-        gl.glShaderSource(fs, _QUAD_FS)
-        gl.glCompileShader(fs)
-        if not gl.glGetShaderiv(fs, gl.GL_COMPILE_STATUS):
-            raise RuntimeError(f"quad 片元着色器编译失败: {gl.glGetShaderInfoLog(fs)}")
-        prog = gl.glCreateProgram()
-        gl.glAttachShader(prog, vs)
-        gl.glAttachShader(prog, fs)
-        gl.glLinkProgram(prog)
-        gl.glDeleteShader(vs)
-        gl.glDeleteShader(fs)
-        if not gl.glGetProgramiv(prog, gl.GL_LINK_STATUS):
-            raise RuntimeError(f"quad 着色器链接失败: {gl.glGetProgramInfoLog(prog)}")
+        if self._quad_disabled:
+            return None
 
-        import ctypes
+        last_err = None
+        for label, vs_src, fs_src in _QUAD_SHADER_VARIANTS:
+            try:
+                prog = self._compile_quad_program(gl, vs_src, fs_src)
+            except Exception as e:
+                last_err = e
+                logger.debug(f"quad 着色器编译失败（{label}）: {e}")
+                continue
+            self._quad_prog = prog
+            self._setup_quad_buffer(gl)
+            logger.info(f"降采样 quad 着色器就绪（{label}）")
+            return prog
+
+        self._quad_disabled = True
+        logger.warning(f"quad 着色器全部版本不可用，本次运行改用固定管线: {last_err}")
+        return None
+
+    @staticmethod
+    def _compile_quad_program(gl, vs_src: str, fs_src: str) -> int:
+        """编译链接一个 quad 着色器程序（属性位置链接前绑定，兼容 GLSL 120）"""
+        shaders = []
+        try:
+            for kind, src in ((gl.GL_VERTEX_SHADER, vs_src), (gl.GL_FRAGMENT_SHADER, fs_src)):
+                sh = gl.glCreateShader(kind)
+                shaders.append(sh)
+                gl.glShaderSource(sh, src)
+                gl.glCompileShader(sh)
+                if not gl.glGetShaderiv(sh, gl.GL_COMPILE_STATUS):
+                    raise RuntimeError(gl.glGetShaderInfoLog(sh))
+            prog = gl.glCreateProgram()
+            for sh in shaders:
+                gl.glAttachShader(prog, sh)
+            # GLSL 120 不支持 layout(location=...)，统一在链接前指定属性位置
+            gl.glBindAttribLocation(prog, 0, "a_pos")
+            gl.glBindAttribLocation(prog, 1, "a_uv")
+            gl.glLinkProgram(prog)
+            if not gl.glGetProgramiv(prog, gl.GL_LINK_STATUS):
+                raise RuntimeError(gl.glGetProgramInfoLog(prog))
+            return prog
+        finally:
+            # 链接完成（无论成败）后着色器对象即可释放，program 持有已链接结果
+            for sh in shaders:
+                gl.glDeleteShader(sh)
+
+    def _setup_quad_buffer(self, gl) -> None:
+        """创建全屏 quad 的 VBO；VAO 仅在 GL 3.0+ 上下文创建"""
         import numpy as np
         # 两个三角形组成全屏四边形：NDC 坐标 + UV，每顶点 4 个 float
         verts = np.array([
@@ -340,25 +428,39 @@ class Live2DCanvas(QOpenGLWidget):
              1.0,  1.0, 1.0, 1.0,
             -1.0,  1.0, 0.0, 1.0,
         ], dtype=np.float32)
-        vao = gl.glGenVertexArrays(1)
         vbo = gl.glGenBuffers(1)
-        gl.glBindVertexArray(vao)
         gl.glBindBuffer(gl.GL_ARRAY_BUFFER, vbo)
         gl.glBufferData(gl.GL_ARRAY_BUFFER, verts.nbytes, verts, gl.GL_STATIC_DRAW)
-        stride = 4 * verts.itemsize
-        gl.glVertexAttribPointer(0, 2, gl.GL_FLOAT, gl.GL_FALSE, stride, ctypes.c_void_p(0))
-        gl.glEnableVertexAttribArray(0)
-        gl.glVertexAttribPointer(1, 2, gl.GL_FLOAT, gl.GL_FALSE, stride, ctypes.c_void_p(8))
-        gl.glEnableVertexAttribArray(1)
-        gl.glBindVertexArray(0)
-        self._quad_vao, self._quad_vbo = vao, vbo
-        self._quad_prog = prog
-        logger.info("降采样 quad 着色器初始化完成")
-        return prog
+
+        vao = 0
+        try:
+            major = int(gl.glGetIntegerv(gl.GL_MAJOR_VERSION))
+        except Exception:
+            major = 0
+        if major >= 3:
+            vao = gl.glGenVertexArrays(1)
+            gl.glBindVertexArray(vao)
+            stride = 4 * verts.itemsize
+            gl.glVertexAttribPointer(0, 2, gl.GL_FLOAT, gl.GL_FALSE, stride, ctypes.c_void_p(0))
+            gl.glEnableVertexAttribArray(0)
+            gl.glVertexAttribPointer(1, 2, gl.GL_FLOAT, gl.GL_FALSE, stride, ctypes.c_void_p(8))
+            gl.glEnableVertexAttribArray(1)
+            gl.glBindVertexArray(0)
+
+        gl.glBindBuffer(gl.GL_ARRAY_BUFFER, 0)
+        self._quad_vbo, self._quad_vao = vbo, vao
 
     def _draw_quad_fixed(self, gl) -> None:
-        """固定管线绘制全屏 quad（仅兼容型上下文可用，作为着色器失败的回退）"""
+        """固定管线绘制全屏 quad（兼容型上下文的最终回退）
+
+        关键：live2d 绘制模型后不会解绑自己的着色器程序，若不先 glUseProgram(0)，
+        下面的立即模式顶点会被残留程序接管（画面全空，并伴随
+        "GLD_TEXTURE_INDEX_2D is unloadable" 警告）。
+        """
+        gl.glUseProgram(0)
+        gl.glColor4f(1.0, 1.0, 1.0, 1.0)
         gl.glEnable(gl.GL_TEXTURE_2D)
+        gl.glTexEnvi(gl.GL_TEXTURE_ENV, gl.GL_TEXTURE_ENV_MODE, gl.GL_MODULATE)
         gl.glMatrixMode(gl.GL_PROJECTION)
         gl.glLoadIdentity()
         gl.glMatrixMode(gl.GL_MODELVIEW)
@@ -380,12 +482,18 @@ class Live2DCanvas(QOpenGLWidget):
             vx, vy, vw, vh = gl.glGetIntegerv(gl.GL_VIEWPORT)
             samples = gl.glGetIntegerv(gl.GL_SAMPLES)
             ssaa = self.SSAA_SCALE if self._ssaa_fbo is not None else 1
+            gl_ver = gl.glGetString(gl.GL_VERSION)
+            glsl_ver = gl.glGetString(gl.GL_SHADING_LANGUAGE_VERSION)
+            if isinstance(gl_ver, bytes):
+                gl_ver = gl_ver.decode("utf-8", "replace")
+            if isinstance(glsl_ver, bytes):
+                glsl_ver = glsl_ver.decode("utf-8", "replace")
             logger.info(
                 f"GL 诊断: dpr={self.devicePixelRatio()} "
                 f"widget={self.width()}x{self.height()} "
                 f"绘制后视口={vw}x{vh}@{vx},{vy} "
                 f"MSAA采样数={samples} "
-                f"超采样={ssaa}x"
+                f"超采样={ssaa}x | GL={gl_ver} | GLSL={glsl_ver}"
             )
         except Exception as e:
             logger.debug(f"GL 诊断失败: {e}")

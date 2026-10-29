@@ -332,6 +332,23 @@
 
 ---
 
+### v0.1.24 —— macOS 渲染修复 + 启动画面可见性
+- [✔] ui/live2d_canvas.py: 定位 mac 白屏根因——Qt 在 macOS 给的是 OpenGL 2.1 / GLSL 1.20 兼容上下文，`#version 330` 降采样着色器每帧编译失败；回退固定管线时 live2d 仍绑着自己的 program，立即模式顶点被吞掉（`texture unloadable ... using zero texture`），最终帧缓冲全空
+- [✔] 降采样着色器改为多版本自适应（330 → 120），属性位置在链接前 `glBindAttribLocation` 绑定以兼容 GLSL 120；VAO 仅 GL 3.0+ 创建，2.1 下每帧显式 `glVertexAttribPointer`
+- [✔] `_draw_quad_fixed` 前置 `glUseProgram(0)` + `glColor4f(1,1,1,1)` + `glTexEnvi(MODULATE)`，修复回退路径画出空画面
+- [✔] 着色器失败结果缓存（`_quad_disabled`），由"每帧重编译 + 每帧一条 WARNING"改为"仅提示一次"；实机验证 2.5s 内警告数 150 → 0
+- [✔] GL 诊断日志补充 GL_VERSION / GL_SHADING_LANGUAGE_VERSION（实机：`GL=2.1 Metal - 83.1 | GLSL=1.20`）
+- [✔] ui/splash_screen.py: 最短展示时长 `_MIN_VISIBLE_MS` 1200 → 4000ms，计时起点由"窗口创建"改为 `showEvent`（用户真正看到画面的时刻）；`request_close` / 淡出关闭增加幂等保护与兜底
+- [✔] 移除 `setWindowOpacity(0)` 淡入——macOS 上 Qt 属性与 `NSWindow.alphaValue` 失同步，窗口会以 alpha=0 常驻（日志却显示 `opacity=1.00`），改为 alpha=1 硬切；`_force_opaque` 的 0.98→1.0 强制下发**仅 macOS 生效**——Windows 上 `windowOpacity` 与分层窗口 alpha 同源可信，不主动干预
+- [✔] 新增 `_bring_to_front()`（按平台分派）：macOS 侧 ctypes 调 Objective-C runtime，设 `setHidesOnDeactivate:NO`（修 NSPanel 失活即隐藏）、`CanJoinAllSpaces | Stationary | FullScreenAuxiliary`、`orderFrontRegardless`
+- [✔] Windows 侧新增 `_bring_to_front_windows()`：`SetWindowPos(hwnd, HWND_TOPMOST, SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE)`。两端窗口都带 `WindowStaysOnTopHint`，而 Windows 同层置顶按创建顺序排列，主窗口晚创建会把卡片压住（`raise_()` 仅同进程有效）；`HWND_TOPMOST` 必须用 `ctypes.c_void_p(-1)`，裸 `-1` 会被 `argtypes` 截断成 32 位
+- [✔] 启动画面子进程 stdout/stderr 由 DEVNULL 改为写入 `logs/splash_child.log`；`_SplashChildProxy.exited()` + `core/app.py:_ensure_splash_alive()` 实现子进程早退时回退进程内启动画面
+- [✔] 启动画面新增分阶段加载文案（梳妆打扮 → 唤醒契约 → 马上就好）；`AOI_SPLASH_HOLD_MS` 可临时覆盖停留时长
+- [✔] core/bootstrap.py: `APP_VERSION` 0.1.21 → 0.1.24（此前未随版本更新同步）
+- [✔] 验证方式：独立探针启动真实窗口 `grabFramebuffer()` 落盘确认模型完整渲染；`CGWindowListCopyWindowInfo` 采样窗口 alpha/在屏状态与遮挡；`screencapture` 整屏截图确认卡片与葵酱可共存
+
+---
+
 ### v0.2 —— 打包分发
 - [✔] PyInstaller 打包（Windows .exe）→ v0.1.22 已完成（单文件 exe，排除模型资源，README 含打包与分发说明）
 - [ ] Py2app 打包（macOS .app）

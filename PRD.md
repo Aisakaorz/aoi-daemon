@@ -388,6 +388,19 @@ AoiDaemon/
 ### v0.1.23 —— 展示/正文字体分离
 - ZCOOL 快乐体为装饰字体，小字号下笔画发虚——正文（聊天气泡、输入框等阅读场景）改用系统高可读性字体（微软雅黑/苹方），启动画面/菜单/关于等展示场景保留萌体
 
+### v0.1.24 —— macOS 渲染修复 + 启动画面可见性
+- **macOS 白屏根因**：Qt 在 macOS 默认创建 OpenGL 2.1 兼容上下文（GLSL 上限 1.20），超采样降采样用的 `#version 330` 着色器必定编译失败；回退的固定管线又因 live2d 未解绑自身着色器程序而画不出东西 → 窗口全透明且每帧刷一条 WARNING
+- 降采样着色器改为多版本自适应：按 GLSL 330 → 120 顺序编译（120 与 live2d 内置着色器版本一致），VAO 仅在 GL 3.0+ 创建，GL 2.1 下用显式属性指针
+- 固定管线回退前强制 `glUseProgram(0)`、重置颜色与纹理环境（消除 `texture unloadable ... using zero texture`）
+- 着色器全部版本失败时缓存结果，仅提示一次，不再每帧重编译/刷日志
+- GL 诊断日志补充 `GL_VERSION` 与 `GL_SHADING_LANGUAGE_VERSION`，便于跨平台排查
+- **启动画面"只闪一下"的三个独立成因**（逐个定位，均附取证方式）：
+  1. 计时起点从"窗口创建"改为 `showEvent`，最短展示 1200 → 4000ms（旧值扣除子进程启动与淡出后实际不足 600ms）
+  2. `setWindowOpacity(0)` 淡入在 macOS 上使 Qt 属性与 `NSWindow.alphaValue` 失同步，窗口以 alpha=0 常驻（详情见踩坑 #22）——改为 alpha=1 硬切
+  3. `Qt::Tool` 窗口在 macOS 是 NSPanel，`hidesOnDeactivate` 默认 YES，主进程激活后卡片被系统隐藏（详情见踩坑 #24）——设为 NO，并配合 `CanJoinAllSpaces` + `orderFrontRegardless`
+- 启动画面子进程输出不再丢进 DEVNULL，改写入 `logs/splash_child.log`；新增子进程早退检测与进程内启动画面回退，`AOI_SPLASH_HOLD_MS` 可临时覆盖停留时长
+- `bootstrap.APP_VERSION` 对齐到当前版本（此前停留在 0.1.21）
+
 ### v0.2 —— 打包分发
 - PyInstaller 打包（Windows .exe）：v0.1.22 已完成
 - Py2app 打包（macOS .app）
@@ -447,3 +460,9 @@ class Live2DModelWrapper:
 17. **macOS 权限**：首次运行可能需授予麦克风权限（STT）。
 18. **live2d 绘制后的 GL 状态污染**：live2d-py 绘制模型后会遗留 `GL_CULL_FACE` 开启且 `glFrontFace(GL_CW)`，以及 active 纹理单元停在 1（遮罩采样）。在模型绘制后做自定义 GL 绘制（如超采样降采样 quad）必须：先 `glDisable(GL_CULL_FACE)`、`glActiveTexture(GL_TEXTURE0)`；且核心上下文（Qt6 默认）中固定管线 glBegin 静默无效，需使用着色器 + VAO。
 19. **PyInstaller 打包**：live2d 包经 l2d/__init__.py 动态修改 sys.path 导入，静态分析不可见，需在 spec 中 collect_submodules 显式收集；窗口程序（console=False）没有 fd 2，stderr 重定向必须原子化保护；frozen 模式下 l2d 的 sys.path 手术会破坏 _MEIPASS 模块定位须跳过；venv 的 PYTHON*/VIRTUAL_ENV 变量会干扰 exe 内嵌解释器，自动化测试须净化环境模拟双击。
+20. **macOS 只有 OpenGL 2.1 / GLSL 1.20**：Qt 在 macOS 默认创建的是 2.1 兼容上下文（`GL=2.1 Metal - 83.1 | GLSL=1.20`），任何 `#version 330` + `layout(location=...)` 的着色器都会编译失败；而 Windows 显卡驱动的兼容上下文通常能上到 330+，所以同一份自定义着色器代码会"Windows 正常、mac 白屏"。自定义着色器必须准备 `#version 120` 版本（`attribute`/`varying`/`gl_FragColor`，属性位置用 `glBindAttribLocation` 在链接前绑定，不要用 `layout(location=)`），并注意 GL 3.0 以下没有 VAO。另外 live2d 内部着色器本身就是 `#version 120`，可用于对照判断上下文能力。
+21. **live2d 绘制后必须解绑着色器程序**：`LAppModel.Draw()` 之后没有 `glUseProgram(0)`，此时用固定管线（`glBegin`/`glVertex2f`）做二次绘制会被残留 program 接管，顶点被静默丢弃，日志出现 `GLD_TEXTURE_INDEX_2D is unloadable ... using zero texture`，表现为整帧空白。自定义 GL 绘制的回退路径务必先 `glUseProgram(0)` 并重置颜色/纹理环境。
+22. **透明窗口不要用 windowOpacity 做淡入（macOS）**：`WA_TranslucentBackground` + `FramelessWindowHint` 的窗口在 macOS 上，Qt 的 `windowOpacity` 属性与底层 `NSWindow.alphaValue` 会失同步——形如 `setWindowOpacity(0.0)` 后启动 `QPropertyAnimation(b"windowOpacity")` 淡入，动画跑完 Qt 侧读数已是 `1.00`（日志会写 `opacity=1.00`），但窗口服务器侧 `alphaValue` 仍停在 `0`，表现为"窗口 `visible=True`、持续绘制、`CGWindowList` 里却 `alpha=0.0` 甚至不在屏列表，肉眼完全看不见"，只在前几帧闪一下。排查手法：`CGWindowListCopyWindowInfo` 读 `kCGWindowAlpha` / `kCGWindowIsOnscreen`（不需要屏幕录制权限）。结论：启动画面这类"出现即需醒目"的窗口直接以 alpha=1 硬切，淡出（1→0 后立刻 close）不受影响；若必须避免半透明残留，兜底重设需先设 0.98 再设 1.0，因为 Qt 判定"值未变化"会跳过下发。
+23. **跨进程置顶窗口的层级**：启动画面在独立子进程里，主进程随后创建的置顶窗口（同为 layer 8）会盖在它上面；且若用户当前处于某个全屏应用的 Space，新进程窗口默认不会显示在那个 Space 里（日志 `visible=True` 但屏幕看不到）。解决：通过 ctypes 调 Objective-C runtime 取 `[NSView window]`，设 `setCollectionBehavior:` 为 `CanJoinAllSpaces | Stationary | FullScreenAuxiliary`（=273）并调 `orderFrontRegardless`，无需 pyobjc 依赖。
+24. **`Qt::Tool` 窗口在 macOS 上是 NSPanel，会在应用失活时自动隐藏**：启动画面用 `Qt::Tool` 以避免出现 Dock 图标，但 Qt 在 macOS 把 Tool 窗口实现为 `NSPanel`，其默认 `hidesOnDeactivate = YES`。启动画面跑在子进程里，主进程一旦创建并激活自己的窗口，子进程的 NSPanel 就被系统隐藏——表现为"卡片出现 0.1~0.3 秒后消失"，而子进程日志一切正常（`visible=True`、持续绘制、`关闭（自首次显示起 4150ms）`），极具误导性。必须 `setHidesOnDeactivate:NO`（objc BOOL 为 1 字节，ctypes 用 `c_byte`）。复现脚本：先起启动画面子进程，0.9 秒后再起任意一个显示窗口的 Qt 进程，用 `CGWindowListCopyWindowInfo` 观察卡片是否从在屏列表消失。
+25. **Windows 同层置顶窗口按创建顺序排列**：启动画面与主窗口都带 `WindowStaysOnTopHint`。Windows 上同层（`HWND_TOPMOST`）窗口按创建/最近置顶顺序排，主窗口晚于启动画面创建，二者矩形相交时会盖住卡片；`raise_()` 只在同进程内有效，子进程的卡片叫不动主窗口。解决：`SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)`（只改层级，不移动/缩放/抢焦点），与 macOS 的 `orderFrontRegardless` 共用同一组调用点（`_bring_to_front` 按平台分派）。**坑**：`HWND_TOPMOST` 是 `(HWND)-1`，必须用 `ctypes.c_void_p(-1)` 让 ctypes 按指针宽度取全 1（64 位 `0xFFFF_FFFF_FFFF_FFFF`），裸传 `-1` 会被 `argtypes` 当 `c_int` 截断成 32 位句柄而失效；`ctypes.cast(c_ssize_t(-1), c_void_p)` 会直接抛 `ArgumentError`。重叠条件：卡片居中 340×272、桌宠贴右下 400×600，实测 1280 宽以上不重叠，1024×768 横向重叠 58px。
