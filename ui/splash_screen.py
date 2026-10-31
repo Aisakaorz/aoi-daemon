@@ -13,7 +13,6 @@ from typing import Optional
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
-    QHBoxLayout,
     QLabel,
     QApplication,
 )
@@ -37,6 +36,7 @@ from PySide6.QtGui import (
     QPixmap,
 )
 
+from ui.avatar import AvatarBadge
 from utils.logger import get_logger
 from utils.font_manager import cute_font
 from utils.paths import bundled
@@ -245,22 +245,13 @@ class SplashScreen(QWidget):
         holder.setFixedSize(76, 86)
         holder.setStyleSheet("background: transparent; border: none;")
 
-        badge = QLabel(holder)
+        # 圆形头像：矩形图标按圆裁切（四角透明，不再露出方形边缘），
+        # 右下角带在线点。白环 + 珊瑚粉外环与原 QLabel 徽章观感一致。
+        badge = AvatarBadge(64, holder)
         badge.setGeometry(6, 18, 64, 64)
-        badge.setStyleSheet(
-            "background: #FFFFFF; border: 2px solid #FFD9D4; border-radius: 32px;"
-        )
-        badge_layout = QHBoxLayout(badge)
-        badge_layout.setContentsMargins(6, 6, 6, 6)
-        icon_label = QLabel()
-        icon_label.setFixedSize(48, 48)
-        icon_label.setScaledContents(True)
-        icon_label.setStyleSheet("background: transparent; border: none;")
-        if os.path.exists(icon_path):
-            icon_pixmap = QIcon(icon_path).pixmap(96, 96)
-            if not icon_pixmap.isNull():
-                icon_label.setPixmap(icon_pixmap)
-        badge_layout.addWidget(icon_label)
+        # 加载期间让绿点呼吸，表达"正在唤醒"而非"已在线"；
+        # 定时器以控件为父对象，窗口关闭时随控件一起销毁
+        badge.setPulse(True)
 
         # LIVE 小红标：放在容器（holder）层而非徽章内——徽章的圆角
         # 样式表会裁剪子控件，导致骑角部分被切断；随头像一起浮动。

@@ -4,13 +4,11 @@
 徽章图标 + 萌体标题 + 版本信息 + 漂浮爱心/星星背景装饰，点击任意处关闭
 """
 import math
-import os
 
 from PySide6.QtWidgets import QDialog, QLabel, QVBoxLayout
 from PySide6.QtCore import Qt, QRectF, QTimer, QElapsedTimer
 from PySide6.QtGui import (
     QFont,
-    QIcon,
     QPainter,
     QPainterPath,
     QColor,
@@ -19,9 +17,9 @@ from PySide6.QtGui import (
 )
 
 from core.bootstrap import APP_VERSION
+from ui.avatar import AvatarBadge
 from ui.splash_screen import heart_path
 from utils.font_manager import cute_font
-from utils.paths import bundled
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -44,24 +42,8 @@ class AboutDialog(QDialog):
         layout.setSpacing(0)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # 徽章图标
-        badge = QLabel()
-        badge.setFixedSize(56, 56)
-        badge.setStyleSheet(
-            "background: #FFFFFF; border: 2px solid #FFD9D4; border-radius: 28px;"
-        )
-        badge_layout = QVBoxLayout(badge)
-        badge_layout.setContentsMargins(5, 5, 5, 5)
-        icon_label = QLabel()
-        icon_label.setFixedSize(44, 44)
-        icon_label.setScaledContents(True)
-        icon_label.setStyleSheet("background: transparent; border: none;")
-        icon_path = bundled("resources", "icons", "app_icon.ico")
-        if os.path.exists(icon_path):
-            pixmap = QIcon(icon_path).pixmap(88, 88)
-            if not pixmap.isNull():
-                icon_label.setPixmap(pixmap)
-        badge_layout.addWidget(icon_label)
+        # 徽章图标：矩形图标按圆裁切（四角透明），右下角带在线点
+        badge = AvatarBadge(56)
         layout.addWidget(badge, alignment=Qt.AlignmentFlag.AlignCenter)
 
         layout.addSpacing(8)
@@ -150,6 +132,10 @@ class AboutDialog(QDialog):
         self._paint_particles(p, card, self._elapsed.elapsed() / 1000.0)
 
         # 珊瑚粉边框 + 内高光线
+        # 注意：drawPath 是**有填充**的。上面的粒子绘制会把画刷留成粉色，
+        # 若不显式复位，下面这两条路径会把整张卡片再填一层粉（也就是为什么
+        # 这张卡一直比设计稿偏粉）。启动画面那边因为粒子画在边框之后，不受影响。
+        p.setBrush(Qt.BrushStyle.NoBrush)
         stroke = QRectF(card).adjusted(0.5, 0.5, -0.5, -0.5)
         stroke_path = QPainterPath()
         stroke_path.addRoundedRect(stroke, self._CORNER_RADIUS, self._CORNER_RADIUS)

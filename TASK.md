@@ -349,6 +349,17 @@
 
 ---
 
+### v0.1.25 —— 圆形头像（矩形图标裁切 + 在线点）
+- [✔] 新增 `ui/avatar.py`：`AvatarBadge` 控件——矩形图标按短边居中取正方形后做圆形裁切（四角透明），套白留白环 + `#FFD9D4` 珊瑚粉外环，右下角绘制 `#7FD1A6` 在线点（2px 白描边）
+- [✔] 提供 `setPulse()`（呼吸脉冲：半径 ±10% + 淡光晕）、`setOnline()`（切灰）、`setSourcePixmap()`（换图），便于后续聊天头像等场景复用
+- [✔] ui/splash_screen.py: 64px 徽章换成 `AvatarBadge(64)`，geometry `(6,18,64,64)` 与 `_bob_tick` 浮动逻辑不变；加载期间开启呼吸脉冲，表达"正在唤醒"而非"已在线"
+- [✔] ui/about_dialog.py: 56px 徽章换成 `AvatarBadge(56)`，居中放入原布局，在线点静态常亮
+- [✔] 两处顺带清掉不再使用的导入（splash 的 `QHBoxLayout`，about 的 `os` / `QIcon` / `bundled`），合计净减 25 行
+- [✔] core/bootstrap.py: `APP_VERSION` 0.1.24 → 0.1.25
+- [✔] 验证方式：脉冲三态像素比对（静态 0 变化 / 呼吸 73 采样点变化 / 关闭后回 0）；两处离屏渲染放大目视（圆形无方角、白环均匀、绿点骑在环内缘）；完整启动 WARNING 0 条且启动画面正常淡出关闭
+
+---
+
 ### v0.2 —— 打包分发
 - [✔] PyInstaller 打包（Windows .exe）→ v0.1.22 已完成（单文件 exe，排除模型资源，README 含打包与分发说明）
 - [ ] Py2app 打包（macOS .app）

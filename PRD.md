@@ -401,6 +401,13 @@ AoiDaemon/
 - 启动画面子进程输出不再丢进 DEVNULL，改写入 `logs/splash_child.log`；新增子进程早退检测与进程内启动画面回退，`AOI_SPLASH_HOLD_MS` 可临时覆盖停留时长
 - `bootstrap.APP_VERSION` 对齐到当前版本（此前停留在 0.1.21）
 
+### v0.1.25 —— 圆形头像（矩形图标裁切 + 在线点）
+- `app_icon.ico` 是矩形，原先"圆角白底 QLabel + 内嵌图标 QLabel"的做法下 `border-radius` 不裁剪子控件里的 pixmap，图标四角一直露在圆底之外 → 改为 QPainter 圆形裁切（源图按短边居中取正方形），四角天然透明，任意尺寸都不露角
+- 新增 `ui/avatar.py`：`AvatarBadge` 控件——圆形裁切 + 白留白环 + 珊瑚粉外环 + 右下在线点，另提供 `setOnline()` / `setSourcePixmap()` 供后续场景（如聊天头像）复用
+- 启动画面 64px 徽章、关于对话框 56px 徽章共用该控件，尺寸、位置与周边装饰（LIVE 小红标、柔影、卡片）全部不变，两处净减 25 行
+- 启动画面加载期间在线点做呼吸脉冲（半径 ±10% + 淡光晕），表达"正在唤醒"；关于对话框保持静态常亮
+- 详见踩坑 #26（含 `offset*√2` 的坐标陷阱）
+
 ### v0.2 —— 打包分发
 - PyInstaller 打包（Windows .exe）：v0.1.22 已完成
 - Py2app 打包（macOS .app）
@@ -466,3 +473,5 @@ class Live2DModelWrapper:
 23. **跨进程置顶窗口的层级**：启动画面在独立子进程里，主进程随后创建的置顶窗口（同为 layer 8）会盖在它上面；且若用户当前处于某个全屏应用的 Space，新进程窗口默认不会显示在那个 Space 里（日志 `visible=True` 但屏幕看不到）。解决：通过 ctypes 调 Objective-C runtime 取 `[NSView window]`，设 `setCollectionBehavior:` 为 `CanJoinAllSpaces | Stationary | FullScreenAuxiliary`（=273）并调 `orderFrontRegardless`，无需 pyobjc 依赖。
 24. **`Qt::Tool` 窗口在 macOS 上是 NSPanel，会在应用失活时自动隐藏**：启动画面用 `Qt::Tool` 以避免出现 Dock 图标，但 Qt 在 macOS 把 Tool 窗口实现为 `NSPanel`，其默认 `hidesOnDeactivate = YES`。启动画面跑在子进程里，主进程一旦创建并激活自己的窗口，子进程的 NSPanel 就被系统隐藏——表现为"卡片出现 0.1~0.3 秒后消失"，而子进程日志一切正常（`visible=True`、持续绘制、`关闭（自首次显示起 4150ms）`），极具误导性。必须 `setHidesOnDeactivate:NO`（objc BOOL 为 1 字节，ctypes 用 `c_byte`）。复现脚本：先起启动画面子进程，0.9 秒后再起任意一个显示窗口的 Qt 进程，用 `CGWindowListCopyWindowInfo` 观察卡片是否从在屏列表消失。
 25. **Windows 同层置顶窗口按创建顺序排列**：启动画面与主窗口都带 `WindowStaysOnTopHint`。Windows 上同层（`HWND_TOPMOST`）窗口按创建/最近置顶顺序排，主窗口晚于启动画面创建，二者矩形相交时会盖住卡片；`raise_()` 只在同进程内有效，子进程的卡片叫不动主窗口。解决：`SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)`（只改层级，不移动/缩放/抢焦点），与 macOS 的 `orderFrontRegardless` 共用同一组调用点（`_bring_to_front` 按平台分派）。**坑**：`HWND_TOPMOST` 是 `(HWND)-1`，必须用 `ctypes.c_void_p(-1)` 让 ctypes 按指针宽度取全 1（64 位 `0xFFFF_FFFF_FFFF_FFFF`），裸传 `-1` 会被 `argtypes` 当 `c_int` 截断成 32 位句柄而失效；`ctypes.cast(c_ssize_t(-1), c_void_p)` 会直接抛 `ArgumentError`。重叠条件：卡片居中 340×272、桌宠贴右下 400×600，实测 1280 宽以上不重叠，1024×768 横向重叠 58px。
+26. **矩形图标塞进圆形容器必然露角（`setScaledContents` 不裁圆角）**：徽章常用「圆角白底 QLabel + 内嵌图标 QLabel」实现，但 `border-radius` 只作用于该控件自身的背景，**不会裁剪子控件里的 pixmap**，`setScaledContents(True)` 也只是拉伸、不裁切——`app_icon.ico` 是矩形的，四角就会压在圆底之外露出来。解决：用 QPainter 做圆形裁切（`QPainterPath.addEllipse` + `setClipPath`，源图先按短边居中取正方形），输出的控件四角天然透明，任意尺寸都不露角；实现见 `ui/avatar.py` 的 `AvatarBadge`（白环 + 珊瑚粉外环 + 右下在线点，启动画面与关于对话框共用）。**附带的坐标坑**：把点放在 `(cx + offset, cy + offset)` 时，实际到圆心距离是 `offset*√2`——按半径的 0.78 倍取 offset 会得到 1.1 倍半径，点直接飘到圆外；应先定「点中心到圆心的距离」再除以 √2。
+27. **`QPainter.drawPath()` 是「填充 + 描边」，不是纯描边**：这是本项目踩过两次的坑。`drawPath(path)` 会先用当前画刷填充路径、再用画笔描边，而 `fillPath`/`drawEllipse` 之后画刷会**保持**在上一次的颜色上。① 关于对话框先画漂浮粒子、再画边框，粒子留下的粉色画刷把整张卡片又填了一层粉（肉眼只觉得「比设计稿粉一点」，很难察觉）；② 备选关于界面里画完在线绿点后画边框，整张卡被填成薄荷绿，一眼可见。规避：画边框/装饰线前显式 `p.setBrush(Qt.BrushStyle.NoBrush)`；或调整顺序（启动画面就是先边框后粒子，所以不受影响）。同类问题在 OpenGL 侧对应 `glUseProgram(0)` 未复位。
