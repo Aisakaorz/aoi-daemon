@@ -31,8 +31,8 @@ logger = get_logger(__name__)
 _DEFAULT_WIDTH = 400
 _DEFAULT_HEIGHT = 600
 
-# 角色底部占窗口高度的比例（从顶部算起），用于限制聊天面板位置
-# 经实际视觉微调：haru 模型脚部约在 95.5% 高度处
+# 角色底部占窗口高度的比例已从 core.character 档案读取（多使魔支持），
+# 此常量保留仅作档案缺省参考
 _CHARACTER_BOTTOM_RATIO = 0.955
 
 # 统一菜单样式（右键/托盘共用）：圆角 pastel 卡片，与启动画面同一设计语言。
@@ -145,6 +145,13 @@ class MainWindow(QMainWindow):
         self._setup_window()
         self._setup_central_widget()
         self._setup_tray()
+
+        # 当前使魔档案（名字用于菜单/气泡文案，底部比例用于吸附与聊天面板定位）
+        from core.character import current_character
+        self._character = current_character()
+        self._char_name = self._character["name"]
+        self._chat.set_character_name(self._char_name)
+
         self._build_shared_menu()
         self._setup_passthrough_timer()
         self._setup_download_tracking()
@@ -286,9 +293,9 @@ class MainWindow(QMainWindow):
     def _build_shared_menu(self) -> None:
         """
         构建统一菜单（任务栏右键 + 角色右键共用）
-        菜单项：显示/隐藏、聊天开关、置顶、角色大小、关于、退出
+        精简为 4 项：显示/隐藏、聊天开关、设置、退出；
+        其余选项（置顶/吸附/角色大小/语音模型/关于）整合进设置窗口
         """
-        from PySide6.QtWidgets import QMenu
         from PySide6.QtGui import QAction, QActionGroup
 
         self._menu = _CuteMenu(self)
@@ -296,37 +303,42 @@ class MainWindow(QMainWindow):
         self._menu.setStyleSheet(_MENU_QSS)
         self._menu.setContentsMargins(4, 6, 4, 6)
 
-        # ---- 显示/隐藏葵酱 ----
-        self._action_visible = QAction("隐藏葵酱", self)
+        # ---- 显示/隐藏使魔 ----
+        self._action_visible = QAction(f"隐藏{self._char_name}🌻", self)
         self._action_visible.triggered.connect(self._toggle_visibility)
         self._menu.addAction(self._action_visible)
 
         # ---- 聊天开关 ----
-        self._action_chat = QAction("想和葵酱聊天", self)
+        self._action_chat = QAction(f"想和{self._char_name}聊天💬", self)
         self._action_chat.triggered.connect(self._toggle_chat_panel)
         self._menu.addAction(self._action_chat)
 
-        # ---- 窗口置顶 ----
+        self._menu.addSeparator()
+
+        # ---- 设置 ----
+        action_settings = QAction("设置🎀", self)
+        action_settings.triggered.connect(self._open_settings)
+        self._menu.addAction(action_settings)
+
+        # ---- 退出 ----
+        action_quit = QAction("退出👋", self)
+        action_quit.triggered.connect(self._on_quit)
+        self._menu.addAction(action_quit)
+
+        # 置顶/吸附的 QAction 保留（作为状态载体供设置窗口与配置恢复使用），不再进菜单
         self._action_top = QAction("窗口置顶", self)
         self._action_top.setCheckable(True)
         self._action_top.setChecked(True)  # 默认置顶
         self._action_top.triggered.connect(self._toggle_topmost)
-        self._menu.addAction(self._action_top)
 
-        # ---- 任务栏吸附 ----
         self._action_snap = QAction("任务栏吸附", self)
         self._action_snap.setCheckable(True)
         self._action_snap.setChecked(True)  # 默认开启
         self._action_snap.triggered.connect(self._toggle_snap)
-        self._menu.addAction(self._action_snap)
 
-        self._menu.addSeparator()
-
-        # ---- 角色大小子菜单 ----
-        size_menu = _CuteMenu("角色大小", self)
+        # 角色大小动作组保留（配置恢复时同步选中态）
         self._size_group = QActionGroup(self)
         self._size_group.setExclusive(True)
-
         for label, scale in [("小", 0.75), ("中", 1.0), ("大", 1.25)]:
             action = QAction(label, self, checkable=True)
             action.setData(scale)
@@ -334,25 +346,6 @@ class MainWindow(QMainWindow):
                 action.setChecked(True)
             action.triggered.connect(lambda checked, s=scale: self._apply_scale(s))
             self._size_group.addAction(action)
-            size_menu.addAction(action)
-
-        self._menu.addMenu(size_menu)
-
-        # ---- 语音转文字模型子菜单 ----
-        self._stt_menu = self._build_stt_menu()
-        self._menu.addMenu(self._stt_menu)
-
-        self._menu.addSeparator()
-
-        # ---- 关于 ----
-        action_about = QAction("关于", self)
-        action_about.triggered.connect(self._show_about)
-        self._menu.addAction(action_about)
-
-        # ---- 退出 ----
-        action_quit = QAction("退出", self)
-        action_quit.triggered.connect(self._on_quit)
-        self._menu.addAction(action_quit)
 
         # 菜单显示前更新动态文字和模型完整性
         self._menu.aboutToShow.connect(self._update_menu_text)
@@ -360,25 +353,14 @@ class MainWindow(QMainWindow):
         # 同时设置给托盘
         self._tray.set_menu(self._menu)
 
-    def _build_stt_menu(self):
-        """构建语音转文字模型子菜单"""
-        from PySide6.QtWidgets import QMenu
-        from PySide6.QtGui import QAction, QActionGroup
-        from voice.model_manager import get_available_models, get_current_model_id
-
-        stt_menu = _CuteMenu("语音转文字模型", self)
-        self._stt_group = QActionGroup(self)
-        self._stt_group.setExclusive(True)
-
-        for model_id, config in get_available_models().items():
-            action = QAction(config["name"], self, checkable=True)
-            action.setData(model_id)
-            action.setChecked(model_id == get_current_model_id())
-            action.triggered.connect(lambda checked, m=model_id: self._on_stt_model_selected(m))
-            self._stt_group.addAction(action)
-            stt_menu.addAction(action)
-
-        return stt_menu
+    def _open_settings(self) -> None:
+        """打开设置窗口（非模态卡片，重复打开时置顶激活）"""
+        if getattr(self, "_settings_dialog", None) is None:
+            from ui.settings_dialog import SettingsDialog
+            self._settings_dialog = SettingsDialog(self)
+        self._settings_dialog.show()
+        self._settings_dialog.raise_()
+        self._settings_dialog.activateWindow()
 
     def _ensure_chat_visible(self) -> None:
         """确保聊天面板可见并正确定位（保持窗口位置不变）"""
@@ -395,12 +377,12 @@ class MainWindow(QMainWindow):
         if not is_model_downloaded(model_id):
             dm = get_download_manager()
             if dm.is_downloading():
-                self._chat.add_message("葵酱：当前正在下载模型呢，请稍后再试哦~", is_user=False)
+                self._chat.add_message(f"{self._char_name}：当前正在下载模型呢，请稍后再试哦~", is_user=False)
                 return
             set_current_model_id(model_id)
             dm.start_download(model_id)
             self._update_stt_menu_state()
-            self._chat.add_message("葵酱：开始下载语音模型啦，请稍候~", is_user=False)
+            self._chat.add_message(f"{self._char_name}：开始下载语音模型啦，请稍候~", is_user=False)
             self._ensure_chat_visible()
             self._chat.show_download_progress()
             return
@@ -409,19 +391,33 @@ class MainWindow(QMainWindow):
         self._update_stt_menu_state()
         from voice.model_manager import get_available_models
         name = get_available_models()[model_id]["name"]
-        self._chat.add_message(f"葵酱：已切换到 {name}~", is_user=False)
+        self._chat.add_message(f"{self._char_name}：已切换到 {name}~", is_user=False)
         self._ensure_chat_visible()
         logger.info(f"语音模型切换为 {model_id}")
 
+    def _start_stt_download_quiet(self, model_id: str) -> None:
+        """从设置窗口启动下载（安静模式）：不强制弹出聊天面板，
+        下载进度在设置窗口内展示，仅托盘 tooltip 同步提示"""
+        from voice.model_manager import is_model_downloaded, set_current_model_id, get_download_manager
+        if is_model_downloaded(model_id):
+            return
+        dm = get_download_manager()
+        if dm.is_downloading():
+            return
+        set_current_model_id(model_id)
+        self._download_quiet = True
+        dm.start_download(model_id)
+        self._update_stt_menu_state()
+        logger.info(f"设置窗口启动模型下载: {model_id}")
+
     def _update_stt_menu_state(self) -> None:
-        """更新语音模型菜单的选中状态"""
-        from voice.model_manager import get_current_model_id
-        current = get_current_model_id()
-        for action in self._stt_group.actions():
-            action.setChecked(action.data() == current)
+        """模型选中状态变更后同步设置窗口（若打开）"""
+        dialog = getattr(self, "_settings_dialog", None)
+        if dialog is not None:
+            dialog._refresh_model_state()
 
     def _check_stt_model_integrity(self) -> None:
-        """菜单打开时检测当前选中的模型是否仍完整存在"""
+        """菜单/设置打开时检测当前选中的模型是否仍完整存在"""
         from voice.model_manager import get_current_model_id, is_model_downloaded, set_current_model_id
         current = get_current_model_id()
         if current is not None and not is_model_downloaded(current):
@@ -438,6 +434,9 @@ class MainWindow(QMainWindow):
         dm.download_stopped.connect(self._on_download_stopped)
 
     def _on_download_started(self, model_id: str) -> None:
+        # 设置窗口发起的下载不强制弹出聊天面板（进度在设置窗口内展示）
+        if getattr(self, "_download_quiet", False):
+            return
         # 在输入框位置显示常驻进度条
         self._ensure_chat_visible()
         self._chat.show_download_progress()
@@ -454,14 +453,17 @@ class MainWindow(QMainWindow):
         self._tray.update_tooltip(detail)
 
     def _on_download_finished(self, model_id, success, message):
+        quiet = getattr(self, "_download_quiet", False)
+        self._download_quiet = False
         from voice.model_manager import get_available_models
         name = get_available_models()[model_id]["name"]
         self._tray.update_tooltip()
         if success:
             self._tray.show_message("下载完成", f"{name} 已下载完成，可以使用语音输入啦~")
-            self._chat.add_message(f"葵酱：{name} 下载完成啦，可以使用语音输入了哦~", is_user=False)
-            # 下载完成自动打开聊天面板
-            self._ensure_chat_visible()
+            self._chat.add_message(f"{self._char_name}：{name} 下载完成啦，可以使用语音输入了哦~", is_user=False)
+            # 下载完成自动打开聊天面板（设置窗口发起的下载除外）
+            if not quiet:
+                self._ensure_chat_visible()
             # 如果当前没有设置模型，自动设置为刚下载的
             from voice.model_manager import get_current_model_id, set_current_model_id
             if get_current_model_id() != model_id:
@@ -469,13 +471,13 @@ class MainWindow(QMainWindow):
                 self._update_stt_menu_state()
         else:
             if message == "已取消":
-                self._chat.add_message("葵酱：下载已取消，资源已清理~", is_user=False)
+                self._chat.add_message(f"{self._char_name}：下载已取消，资源已清理~", is_user=False)
                 return
             friendly = message
             if any(k in message for k in ("10060", "10054", "Connection", "Timeout")):
                 friendly = "网络连接失败"
             self._tray.show_message("下载失败", f"{name} {friendly}，请重试", QSystemTrayIcon.MessageIcon.Warning)
-            self._chat.add_message(f"葵酱：下载失败 — {friendly}，请重试~", is_user=False)
+            self._chat.add_message(f"{self._char_name}：下载失败 — {friendly}，请重试~", is_user=False)
 
     def _setup_passthrough_timer(self) -> None:
         """
@@ -554,7 +556,7 @@ class MainWindow(QMainWindow):
         x = screen.right() - _DEFAULT_WIDTH - 20
         # 垂直方向吸附：角色底部贴住任务栏顶部
         if hasattr(self, '_action_snap') and self._action_snap.isChecked():
-            y = screen.bottom() - int(_DEFAULT_HEIGHT * _CHARACTER_BOTTOM_RATIO)
+            y = screen.bottom() - int(_DEFAULT_HEIGHT * self._character["bottom_ratio"])
         else:
             y = screen.bottom() - _DEFAULT_HEIGHT - 20
         self.move(x, y)
@@ -568,7 +570,7 @@ class MainWindow(QMainWindow):
                 chat_width = getattr(chat, '_base_width', 280)
                 cx = (parent.width() - chat_width) // 2
                 # 聊天面板底部略低于角色底部，遮住一点脚部
-                character_bottom = int(parent.height() * _CHARACTER_BOTTOM_RATIO) + 3
+                character_bottom = int(parent.height() * self._character["bottom_ratio"]) + 3
                 cy = character_bottom - chat.height()
                 cy = max(cy, 0)
                 chat.move(cx, cy)
@@ -599,8 +601,8 @@ class MainWindow(QMainWindow):
             return
 
         taskbar_top = avail.bottom()
-        # 以角色底部为基准计算距离
-        character_bottom = self.y() + int(self.height() * _CHARACTER_BOTTOM_RATIO)
+        # 以角色底部为基准计算距离（比例来自使魔档案）
+        character_bottom = self.y() + int(self.height() * self._character["bottom_ratio"])
         dist = taskbar_top - character_bottom
 
         # 阈值 = 任务栏高度的一半（动态适应不同 DPI/屏幕）
@@ -610,7 +612,7 @@ class MainWindow(QMainWindow):
         # 角色底部高于或低于任务栏顶部，只要在阈值内就吸附
         if -threshold <= dist <= threshold:
             if hasattr(self, '_action_snap') and self._action_snap.isChecked():
-                new_y = taskbar_top - int(self.height() * _CHARACTER_BOTTOM_RATIO)
+                new_y = taskbar_top - int(self.height() * self._character["bottom_ratio"])
                 self.move(self.x(), new_y)
                 logger.debug(f"角色底部吸附到任务栏顶部: y={self.y()}")
 
@@ -654,16 +656,16 @@ class MainWindow(QMainWindow):
             self.show()
 
     def _update_menu_text(self) -> None:
-        """菜单显示前更新动态文字（显示/隐藏、聊天开关）"""
+        """菜单显示前更新动态文字（显示/隐藏、聊天开关），名字取自使魔档案"""
         if self.isVisible():
-            self._action_visible.setText("隐藏葵酱")
+            self._action_visible.setText(f"隐藏{self._char_name}🌻")
         else:
-            self._action_visible.setText("显示葵酱")
+            self._action_visible.setText(f"显示{self._char_name}🌻")
 
         if self._chat.isVisible():
-            self._action_chat.setText("不和葵酱聊天")
+            self._action_chat.setText(f"不和{self._char_name}聊天💬")
         else:
-            self._action_chat.setText("想和葵酱聊天")
+            self._action_chat.setText(f"想和{self._char_name}聊天💬")
 
         self._check_stt_model_integrity()
 

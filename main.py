@@ -55,7 +55,10 @@ _ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def _has_model_files() -> bool:
-    """检查 resources/model/ 下是否存在 .model.json 文件"""
+    """检查当前使魔档案指定的模型入口是否存在（兼容旧布局：resources/model/ 下任一模型的存在性）"""
+    from core.character import character_model_json
+    if os.path.exists(character_model_json()):
+        return True
     pattern = os.path.join(_MODEL_DIR, "**", "*.model.json")
     return len(glob.glob(pattern, recursive=True)) > 0
 
@@ -249,7 +252,8 @@ def _main_impl() -> int:
     splash = None
     if splash_proxy is None:
         from ui.splash_screen import SplashScreen
-        splash = SplashScreen()
+        from core.character import current_character
+        splash = SplashScreen(character_name=current_character()["name"])
         splash.show()
         app.processEvents()
 

@@ -46,7 +46,8 @@ def run_splash_child() -> int:
     app = QApplication(["aoi-splash"])
     from ui.splash_screen import SplashScreen
 
-    splash = SplashScreen()
+    from core.character import current_character
+    splash = SplashScreen(character_name=current_character()["name"])
     splash.show()
     # 强制立即完成首次映射与绘制：macOS 上非前台进程的窗口可能被判定为
     # "后台窗口"而不主动前置，先 processEvents 落地再抢焦点

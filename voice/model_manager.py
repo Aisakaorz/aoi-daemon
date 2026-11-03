@@ -22,6 +22,9 @@ MODELS: dict[str, dict] = {
         "name": "Whisper Tiny",
         "size_str": "~75MB",
         "repo_id": "guillaumekln/faster-whisper-tiny",
+        # ModelScope 国内镜像（主下载源，CDN 快且稳）；目录为合集仓库内的模型子目录
+        "ms_repo": "XXXXRT/faster-whisper",
+        "ms_path": "faster-whisper-tiny",
         "local_dir": os.path.join(app_root("resources"), "whisper", "tiny"),
         "size_bytes": 75 * 1024 * 1024,
     },
@@ -83,6 +86,27 @@ def _fmt_bytes(b: int) -> str:
 def _set_hf_mirror() -> None:
     if not os.environ.get("HF_ENDPOINT"):
         os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+    # 网络超时放宽，避免慢网反复重试
+    os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "30")
+    # 注：hf_transfer 已被新版 huggingface_hub 弃用（改推 Xet，国内镜像不支持），
+    # 故不再启用；下载速度主要取决于镜像带宽（实测 ~1.3MB/s，75MB 约 1 分钟）。
+    # 如需提速可调研 ModelScope 镜像源（未来版本）
+
+
+def delete_model(model_id: str) -> bool:
+    """删除已下载的语音模型文件（不可恢复）；删除当前使用中的模型时同时重置选中态"""
+    local_dir = get_model_local_dir(model_id)
+    if not local_dir or not os.path.isdir(local_dir):
+        return False
+    try:
+        shutil.rmtree(local_dir)
+        logger.info(f"语音模型已删除: {model_id}")
+    except Exception as e:
+        logger.warning(f"删除语音模型失败: {e}")
+        return False
+    if get_current_model_id() == model_id:
+        set_current_model_id(None)
+    return True
 
 
 # 线程锁，保护共享进度状态
@@ -142,6 +166,7 @@ class ModelDownloadWorker(QThread):
         self._last_bytes = 0
         self._last_time = time.time()
         self._last_emit_time = 0.0
+        self._last_speed_str = ""
 
     def _cleanup(self) -> None:
         """删除已下载的残缺内容（在 worker 线程执行，不阻塞 UI）"""
@@ -160,46 +185,29 @@ class ModelDownloadWorker(QThread):
         downloaded, total = self._tracker.get_progress()
         delta = downloaded - self._last_bytes
         dt = now - self._last_time
-        speed_str = ""
+        # 速度估计每 ≥0.5s 刷新一次，但每次都随信号发出（避免 UI 上速度时有时无地闪烁）
         if dt > 0.5 and delta > 0:
             speed = delta / dt
             if speed > 1024 * 1024:
-                speed_str = f"{speed / 1024 / 1024:.1f}MB/s"
+                self._last_speed_str = f"{speed / 1024 / 1024:.1f}MB/s"
             elif speed > 1024:
-                speed_str = f"{speed / 1024:.1f}KB/s"
+                self._last_speed_str = f"{speed / 1024:.1f}KB/s"
             else:
-                speed_str = f"{speed:.0f}B/s"
+                self._last_speed_str = f"{speed:.0f}B/s"
             self._last_bytes = downloaded
             self._last_time = now
         pct = int(downloaded / total * 100) if total > 0 else 0
         self.progress.emit(min(pct, 100))
         self.progress_detail.emit(
-            self._model_id, min(pct, 100), downloaded, total, speed_str
+            self._model_id, min(pct, 100), downloaded, total, self._last_speed_str
         )
 
     def run(self) -> None:
         try:
             _set_hf_mirror()
-            from huggingface_hub import snapshot_download
-
-            # 重新下载前先清空已有内容
-            self._cleanup()
-            os.makedirs(self._local_dir, exist_ok=True)
-
-            # 重置全局状态
-            with _progress_lock:
-                HFProgressBar._cancelled = False
-                HFProgressBar._tracker = self._tracker
-                HFProgressBar._signal = self._emit_progress
-            self._last_bytes = 0
-            self._last_time = time.time()
-            self._last_emit_time = 0.0
-
-            snapshot_download(
-                self._repo_id,
-                local_dir=self._local_dir,
-                tqdm_class=HFProgressBar,
-            )
+            # 优先 ModelScope 国内 CDN（真实进度/速度、单文件流式），失败回退 hf-mirror
+            if not self._download_from_modelscope():
+                self._download_from_hf_mirror()
             self.finished.emit(self._model_id, True, "")
         except RuntimeError as e:
             if "下载已取消" in str(e):
@@ -219,6 +227,94 @@ class ModelDownloadWorker(QThread):
             with _progress_lock:
                 HFProgressBar._tracker = None
                 HFProgressBar._signal = None
+
+    def _download_from_modelscope(self) -> bool:
+        """从 ModelScope（国内 CDN）按文件直链流式下载：逐块真实进度与速度、可协作取消。
+        仓库缺文件或网络异常时返回 False，由调用方回退 hf-mirror。"""
+        import requests
+
+        ms_repo = MODELS[self._model_id].get("ms_repo")
+        ms_path = MODELS[self._model_id].get("ms_path")
+        if not ms_repo or not ms_path:
+            return False
+        try:
+            api = f"https://modelscope.cn/api/v1/models/{ms_repo}/repo/files?Recursive=true"
+            resp = requests.get(api, timeout=15)
+            resp.raise_for_status()
+            entries = resp.json().get("Data", {}).get("Files", [])
+            wanted = {
+                f["Path"]: f["Size"]
+                for f in entries
+                if f["Path"].startswith(ms_path + "/")
+                and os.path.basename(f["Path"]) in _REQUIRED_FILES
+            }
+            if len(wanted) < len(_REQUIRED_FILES):
+                logger.warning(f"ModelScope 仓库缺少必要文件: {ms_repo}/{ms_path}")
+                return False
+
+            total = sum(wanted.values())
+            with _progress_lock:
+                HFProgressBar._cancelled = False
+            # 用接口返回的真实总大小重建进度跟踪器
+            self._tracker = _GlobalDownloadTracker(total)
+            with _progress_lock:
+                HFProgressBar._tracker = self._tracker
+                HFProgressBar._signal = self._emit_progress
+            self._last_bytes = 0
+            self._last_time = time.time()
+            self._last_emit_time = 0.0
+            self._last_speed_str = ""
+
+            self._cleanup()
+            os.makedirs(self._local_dir, exist_ok=True)
+            logger.info(f"从 ModelScope 下载 {ms_repo}/{ms_path}（共 {total / 1024 / 1024:.0f}MB）")
+
+            for rel_path in wanted:
+                fname = os.path.basename(rel_path)
+                url = f"https://modelscope.cn/models/{ms_repo}/resolve/master/{rel_path}"
+                with requests.get(url, stream=True, timeout=(10, 60)) as r:
+                    r.raise_for_status()
+                    with open(os.path.join(self._local_dir, fname), "wb") as f:
+                        for chunk in r.iter_content(chunk_size=1024 * 512):
+                            if not chunk:
+                                continue
+                            with _progress_lock:
+                                cancelled = HFProgressBar._cancelled
+                            if cancelled:
+                                raise RuntimeError("下载已取消")
+                            f.write(chunk)
+                            self._tracker.add_bytes(len(chunk))
+                            self._emit_progress()
+            logger.info("ModelScope 下载完成")
+            return True
+        except RuntimeError:
+            raise
+        except Exception as e:
+            logger.warning(f"ModelScope 下载不可用，回退 hf-mirror: {e}")
+            return False
+
+    def _download_from_hf_mirror(self) -> None:
+        """回退方案：hf-mirror + huggingface_hub snapshot_download"""
+        from huggingface_hub import snapshot_download
+
+        self._cleanup()
+        os.makedirs(self._local_dir, exist_ok=True)
+
+        with _progress_lock:
+            HFProgressBar._cancelled = False
+            HFProgressBar._tracker = self._tracker
+            HFProgressBar._signal = self._emit_progress
+        self._last_bytes = 0
+        self._last_time = time.time()
+        self._last_emit_time = 0.0
+        self._last_speed_str = ""
+
+        snapshot_download(
+            self._repo_id,
+            local_dir=self._local_dir,
+            tqdm_class=HFProgressBar,
+            max_workers=4,
+        )
 
     def cancel(self) -> None:
         """请求取消下载（协作式）"""

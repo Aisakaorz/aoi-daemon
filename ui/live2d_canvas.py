@@ -102,6 +102,9 @@ class Live2DCanvas(QOpenGLWidget):
     ):
         super().__init__(parent)
         self._model = model_wrapper
+        # 当前使魔档案（模型路径/音效目录/hit 区域均取自档案，支持未来多使魔切换）
+        from core.character import current_character
+        self._character = current_character()
         self._state = state_machine
 
         # 开启鼠标追踪（鼠标不按下时也能接收 mouseMoveEvent，视线跟踪必需）
@@ -173,10 +176,9 @@ class Live2DCanvas(QOpenGLWidget):
             self.model_ready.emit()
             return
 
-        # 模型入口文件（用户自备，放置于应用根目录 resources/model/ 下）
-        model_path = app_root(
-            "resources", "model", "live2d-widget-model-haru", "haru02.model.json"
-        )
+        # 模型入口文件来自当前使魔档案（用户自备，放置于应用根目录 resources/ 下）
+        from core.character import character_model_json
+        model_path = character_model_json()
         if not os.path.exists(model_path):
             logger.error(f"模型文件不存在: {model_path}")
             self.model_ready.emit()
@@ -656,9 +658,11 @@ class Live2DCanvas(QOpenGLWidget):
             self._mouse_over_model = False
             return
 
-        # 几何矩形近似（haru 模型）：头部在上半区，身体在中下半区
-        head_hit = (0.25 * w <= x <= 0.75 * w and 0.05 * h <= y <= 0.45 * h)
-        body_hit = (0.20 * w <= x <= 0.80 * w and 0.40 * h <= y <= 0.90 * h)
+        # 几何矩形近似来自使魔档案（haru 模型默认值）
+        hx0, hx1, hy0, hy1 = self._character["head_rect"]
+        bx0, bx1, by0, by1 = self._character["body_rect"]
+        head_hit = (hx0 * w <= x <= hx1 * w and hy0 * h <= y <= hy1 * h)
+        body_hit = (bx0 * w <= x <= bx1 * w and by0 * h <= y <= by1 * h)
         self._mouse_over_model = head_hit or body_hit
 
     def _do_hit_test(self, x: float, y: float) -> None:
@@ -679,9 +683,11 @@ class Live2DCanvas(QOpenGLWidget):
         if w <= 0 or h <= 0:
             return
 
-        # 几何矩形近似（haru 模型）
-        head_hit = (0.25 * w <= x <= 0.75 * w and 0.05 * h <= y <= 0.45 * h)
-        body_hit = (0.20 * w <= x <= 0.80 * w and 0.40 * h <= y <= 0.90 * h)
+        # 几何矩形近似来自使魔档案（haru 模型默认值）
+        hx0, hx1, hy0, hy1 = self._character["head_rect"]
+        bx0, bx1, by0, by1 = self._character["body_rect"]
+        head_hit = (hx0 * w <= x <= hx1 * w and hy0 * h <= y <= hy1 * h)
+        body_hit = (bx0 * w <= x <= bx1 * w and by0 * h <= y <= by1 * h)
         logger.debug(f"点击 ({x:.0f},{y:.0f}) head={head_hit} body={body_hit}")
 
         # 检测头部
@@ -718,8 +724,8 @@ class Live2DCanvas(QOpenGLWidget):
         """
         if not self._sound_enabled:
             return
-        path = app_root("resources", "model", "live2d-widget-model-haru", "snd", filename)
-        if not os.path.exists(path):
+        path = app_root(self._character["snd_dir"], filename) if self._character.get("snd_dir") else None
+        if not path or not os.path.exists(path):
             return
         try:
             from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput

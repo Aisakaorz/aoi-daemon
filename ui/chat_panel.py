@@ -303,7 +303,9 @@ class ChatPanel(QWidget):
 
         self._input = QLineEdit(self._input_frame)
         self._input.setFont(body_font(10))
-        self._input.setPlaceholderText("跟葵酱说点什么吧~ ✨")
+        # 使魔名字（默认葵酱；MainWindow 按当前使魔档案更新，未来多使魔切换时文案联动）
+        self._char_name = "葵酱"
+        self._input.setPlaceholderText(f"跟{self._char_name}说点什么吧~ ✨")
         self._input.returnPressed.connect(self._on_send)
         self._input.setStyleSheet("""
             QLineEdit {
@@ -932,9 +934,15 @@ class ChatPanel(QWidget):
         logger.info("提交语音转录任务")
         self._stt.stop_recording_and_transcribe(self._on_transcribe_done, self._on_transcribe_error)
 
+    def set_character_name(self, name: str) -> None:
+        """更新使魔名字（占位文案与提示气泡联动）"""
+        self._char_name = name
+        if not self._input.text():
+            self._input.setPlaceholderText(f"跟{name}说点什么吧~ ✨")
+
     def _restore_input_after_recording(self) -> None:
         """录音结束后恢复输入框状态"""
-        self._input.setPlaceholderText("跟葵酱说点什么吧~ ✨")
+        self._input.setPlaceholderText(f"跟{self._char_name}说点什么吧~ ✨")
         self._input.setEnabled(True)
 
     def _update_voice_volume(self) -> None:
@@ -962,18 +970,18 @@ class ChatPanel(QWidget):
         """转录完成回调（在主线程执行）"""
         logger.debug(f"_on_transcribe_done 被调用，text={'有内容' if text else '空'}")
         self.hide_typing_indicator()
-        self._input.setPlaceholderText("跟葵酱说点什么吧~ ✨")
+        self._input.setPlaceholderText(f"跟{self._char_name}说点什么吧~ ✨")
         if text:
             self._input.setText(text)
             self._input.setFocus()
             logger.info(f"语音转文字成功: {text[:30]}...")
         else:
-            self.add_message("葵酱：没有听清呢，请再试一次吧~", is_user=False)
+            self.add_message(f"{self._char_name}：没有听清呢，请再试一次吧~", is_user=False)
 
     def _on_transcribe_error(self, message: str) -> None:
         """语音引擎环境错误（如缺 VC++ 运行库）：显示带安装引导的提示气泡"""
         self.hide_typing_indicator()
-        self._input.setPlaceholderText("跟葵酱说点什么吧~ ✨")
+        self._input.setPlaceholderText(f"跟{self._char_name}说点什么吧~ ✨")
         self.add_message(message, is_user=False)
 
     # ---- 下载进度（常驻在输入框位置） ----

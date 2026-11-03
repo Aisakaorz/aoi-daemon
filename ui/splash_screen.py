@@ -141,6 +141,9 @@ class _BubbleLabel(QWidget):
     def adjustSizeToContent(self) -> None:
         fm = self._label.fontMetrics()
         w = fm.horizontalAdvance(self._label.text()) + 34
+        # 宽度只增不减：切换文案时保持窗口位置不漂移（居中的小气泡不会向右滑）
+        if self.width() > 0:
+            w = max(w, self.width())
         self.setFixedSize(w, 34)
         self._label.setGeometry(0, 0, w, 30)
 
@@ -216,13 +219,14 @@ class SplashScreen(QWidget):
                 logger.warning(f"AOI_SPLASH_HOLD_MS 不是合法整数，忽略: {raw!r}")
         return cls._MIN_VISIBLE_MS
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, character_name: str = "葵酱"):
         super().__init__(
             parent,
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.Tool,
         )
+        self._character_name = character_name
         self.setFixedSize(340, 272)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
@@ -301,21 +305,27 @@ class SplashScreen(QWidget):
 
         layout.addSpacing(8)
 
-        # 气泡状态文案
-        self._bubble = _BubbleLabel("葵酱正在梳妆打扮，请稍候~")
+        # 气泡状态文案（使魔名字来自角色档案）
+        self._bubble = _BubbleLabel(f"{self._character_name}正在梳妆打扮，请稍候~")
         self._bubble.adjustSizeToContent()
         layout.addWidget(self._bubble, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # 加载文案分阶段推进：让短暂等待看起来是流程，而不是卡在固定文案上
         self._status_stages = (
-            "葵酱正在梳妆打扮，请稍候~",
+            f"{self._character_name}正在梳妆打扮，请稍候~",
             "正在唤醒使魔契约…",
+            "正在整理裙角和发带…",
             "马上就好啦，再等一下下~",
         )
         self._stage_index = 0
+        # 按最长阶段文案定宽：各阶段宽度一致，切换时气泡不 resize、居中长期稳定
+        _fm = self._bubble._label.fontMetrics()
+        _max_stage_w = max(_fm.horizontalAdvance(t) for t in self._status_stages) + 34
+        self._bubble.setFixedWidth(_max_stage_w)
         self._stage_timer = QTimer(self)
         self._stage_timer.timeout.connect(self._advance_status)
-        self._stage_timer.start(900)
+        # 1.15s/句：启动画面总时长约 2~3s，保证每句文案都有可读的停留时间
+        self._stage_timer.start(1150)
 
         layout.addSpacing(10)
 
