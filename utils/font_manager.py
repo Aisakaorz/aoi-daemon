@@ -5,12 +5,12 @@
   可自由随应用分发（许可证见 resources/fonts/OFL-ZCOOLKuaiLe.txt）
 - 字体文件缺失/加载失败时自动回退系统黑体，不影响功能
 """
-import os
 import sys
 
 from PySide6.QtGui import QFont, QFontDatabase
 
 from utils.logger import get_logger
+from utils.paths import find_resource
 
 logger = get_logger(__name__)
 
@@ -40,13 +40,10 @@ def load_bundled_fonts() -> None:
     if _load_attempted:
         return
     _load_attempted = True
-    font_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resources", "fonts"
-    )
     for fname in _BUNDLED_FONT_FILES:
-        path = os.path.join(font_dir, fname)
-        if not os.path.exists(path):
-            logger.warning(f"内置字体文件缺失: {path}")
+        path = find_resource("resources", "fonts", fname)
+        if not path:
+            logger.warning(f"内置字体文件缺失: {fname}")
             continue
         font_id = QFontDatabase.addApplicationFont(path)
         if font_id == -1:

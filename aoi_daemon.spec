@@ -5,8 +5,8 @@
 用法：.venv\\Scripts\\pyinstaller.exe aoi_daemon.spec --noconfirm
 
 说明：
-- 打包用户自备资源：fonts/icons/sounds（模型 resources/model 与语音模型
-  resources/whisper 按设计排除——首次运行按 README 引导放置/应用内下载）
+- 打包内置资源：fonts/icons/sounds（其余资源运行时从应用运行根目录读取，
+  语音模型支持应用内下载）
 - 收集语音链路原生依赖（sounddevice / faster-whisper / ctranslate2）
 - 子进程启动画面通过 --splash-child 参数复用本 exe，无需额外文件
 """

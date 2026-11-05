@@ -45,7 +45,7 @@ os.environ["QT_LOGGING_RULES"] = "qt.multimedia.ffmpeg=false"
 
 from utils import config_manager as cfg
 from utils.logger import get_logger
-from utils.paths import app_root, bundled
+from utils.paths import app_root, app_icon_path
 
 logger = get_logger(__name__)
 
@@ -79,9 +79,11 @@ def _show_missing_model_dialog() -> None:
     msg.setStandardButtons(QMessageBox.StandardButton.Ok)
 
     # 设置应用图标
-    icon_path = bundled("resources", "icons", "app_icon.ico")
-    if os.path.exists(icon_path):
-        msg.setWindowIcon(QIcon(icon_path))
+    icon_path = app_icon_path()
+    if icon_path:
+        icon = QIcon(icon_path)
+        if not icon.isNull():
+            msg.setWindowIcon(icon)
 
     msg.exec()
 

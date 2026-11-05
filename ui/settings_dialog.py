@@ -5,7 +5,6 @@
 改动即时生效并写回 config.json；右键/托盘菜单精简为 4 项
 """
 import math
-import os
 
 from PySide6.QtCore import Qt, QRectF, QElapsedTimer, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QCursor, QLinearGradient
@@ -24,6 +23,7 @@ from ui.card_paint import paint_cute_card
 from ui.splash_screen import heart_path
 from utils.font_manager import cute_font, body_font
 from utils.logger import get_logger
+from utils.paths import app_icon_path
 
 logger = get_logger(__name__)
 
@@ -221,10 +221,13 @@ class SettingsDialog(QWidget):
         self.setFixedSize(340, 444)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setWindowTitle("设置 · 葵之使魔")
-        icon_path = os.path.join("resources", "icons", "app_icon.ico")
-        if os.path.exists(icon_path):
+        # 图标路径由 utils.paths 锚定：任意工作目录 / 打包后都能取到
+        icon_path = app_icon_path()
+        if icon_path:
             from PySide6.QtGui import QIcon
-            self.setWindowIcon(QIcon(icon_path))
+            icon = QIcon(icon_path)
+            if not icon.isNull():
+                self.setWindowIcon(icon)
 
         self._drag_pos = None
         # 背景花纹动画驱动（与启动画面/关于同款漂浮粒子）

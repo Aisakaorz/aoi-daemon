@@ -13,14 +13,13 @@
     badge.setOnline(False)   # 需要时切换在线状态
 """
 import math
-import os
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QWidget
 
 from utils.logger import get_logger
-from utils.paths import bundled
+from utils.paths import app_icon_path
 
 logger = get_logger(__name__)
 
@@ -36,10 +35,12 @@ def load_app_icon_pixmap(size: int | None = None) -> QPixmap | None:
     macOS 的 ico 解析都遵循同一套 QIcon 逻辑，若图标只有 128px 帧而请求
     256px，Qt 会先放大再让我们缩回去，白丢一层清晰度。
     """
-    path = bundled("resources", "icons", "app_icon.ico")
-    if not os.path.exists(path):
+    path = app_icon_path()
+    if not path:
         return None
     icon = QIcon(path)
+    if icon.isNull():
+        return None
     if size is None:
         sizes = icon.availableSizes()
         size = max((s.width() for s in sizes), default=256)

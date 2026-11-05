@@ -39,7 +39,7 @@ from PySide6.QtGui import (
 from ui.avatar import AvatarBadge
 from utils.logger import get_logger
 from utils.font_manager import cute_font
-from utils.paths import bundled
+from utils.paths import app_icon_path
 
 logger = get_logger(__name__)
 
@@ -240,9 +240,11 @@ class SplashScreen(QWidget):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # 图标（窗口图标 + 徽章内图标）
-        icon_path = bundled("resources", "icons", "app_icon.ico")
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
+        icon_path = app_icon_path()
+        if icon_path:
+            icon = QIcon(icon_path)
+            if not icon.isNull():
+                self.setWindowIcon(icon)
 
         # 徽章容器：头像待机浮动 + LIVE 小红标
         holder = QWidget(self)

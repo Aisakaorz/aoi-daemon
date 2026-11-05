@@ -8,6 +8,7 @@ from PySide6.QtGui import QIcon, QAction
 from PySide6.QtCore import Signal, QObject
 
 from utils.logger import get_logger
+from utils.paths import app_icon_path
 
 logger = get_logger(__name__)
 
@@ -36,22 +37,19 @@ class TrayIcon(QObject):
         self._tray.activated.connect(self._on_activated)
 
     def _setup_icon(self) -> None:
-        """设置托盘图标，优先使用 resources/icons/tray_icon.png"""
-        icon_paths = [
-            "resources/icons/tray_icon.png",
-            "resources/icons/tray.ico",
-            "resources/icons/app_icon.ico",
-        ]
-        for path in icon_paths:
-            if __import__('os').path.exists(path):
-                self._tray.setIcon(QIcon(path))
+        """设置托盘图标（路径经 utils.paths 锚定，任意工作目录下都能取到）"""
+        path = app_icon_path(tray=True)
+        if path:
+            icon = QIcon(path)
+            if not icon.isNull():
+                self._tray.setIcon(icon)
                 logger.info(f"托盘图标加载成功: {path}")
                 return
-        # 使用系统默认图标
+        # 图标缺失或无法解析时回退系统默认，不阻断启动
         self._tray.setIcon(QApplication.style().standardIcon(
             QApplication.style().StandardPixmap.SP_ComputerIcon
         ))
-        logger.warning("未找到自定义托盘图标，使用系统默认图标")
+        logger.warning("未找到可用的托盘图标，使用系统默认图标")
 
     def set_menu(self, menu: QMenu) -> None:
         """设置托盘右键菜单（由 MainWindow 统一构建）"""

@@ -51,7 +51,7 @@ tmp/
 logs/
 crash.log
 
-# Live2D 模型文件已随仓库分发（取消忽略）
+# Live2D 模型目录不做忽略
 
 # 语音转文字模型（体积大，首次运行时自动下载或手动放置）
 resources/whisper/tiny/
