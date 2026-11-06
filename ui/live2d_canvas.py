@@ -17,7 +17,7 @@ from PySide6.QtGui import QMouseEvent
 from l2d.model_wrapper import Live2DModelWrapper
 from core.state_machine import StateMachine, CharacterState
 from utils.logger import get_logger
-from utils.paths import app_root
+from utils.paths import find_asset
 
 logger = get_logger(__name__)
 
@@ -724,7 +724,9 @@ class Live2DCanvas(QOpenGLWidget):
         """
         if not self._sound_enabled:
             return
-        path = app_root(self._character["snd_dir"], filename) if self._character.get("snd_dir") else None
+        snd_dir = self._character.get("snd_dir")
+        rel = os.path.join(snd_dir, filename) if snd_dir else None
+        path = find_asset(rel) if rel else None
         if not path or not os.path.exists(path):
             return
         try:

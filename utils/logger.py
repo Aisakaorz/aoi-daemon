@@ -58,8 +58,10 @@ def get_logger(name: str) -> logging.Logger:
         # 控制台 Handler（跟随全局级别）
         try:
             stream_handler = logging.StreamHandler(sys.stdout)
+            # 只放宽编码错误策略，绝不强制改成 UTF-8：
+            # Windows 中文控制台默认 cp936，强制 UTF-8 会让中文日志按 GBK 解码成乱码。
             if hasattr(sys.stdout, "reconfigure"):
-                sys.stdout.reconfigure(encoding="utf-8")
+                sys.stdout.reconfigure(errors="replace")
         except Exception:
             stream_handler = logging.StreamHandler(sys.stdout)
 

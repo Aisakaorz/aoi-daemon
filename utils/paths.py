@@ -36,6 +36,17 @@ def find_resource(*parts: str) -> str | None:
     return None
 
 
+def find_asset(rel_path: str) -> str | None:
+    """按「应用根目录相对路径」查找只读资源（模型、模型音效等），优先内置资源。
+
+    使魔档案里存的是 os.path.join 拼好的相对路径（含子目录），这里拆成层级后
+    复用 find_resource()。兼容 Windows 反斜杠与混合分隔符。
+    打包后模型随 exe 分发在 _MEIPASS 内，开发时两者都指向项目根。
+    """
+    parts = [p for p in rel_path.replace("\\", "/").split("/") if p not in ("", ".")]
+    return find_resource(*parts)
+
+
 def app_icon_path(tray: bool = False) -> str | None:
     """应用图标路径：按优先级返回第一个可用的文件，全部缺失返回 None。
 

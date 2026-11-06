@@ -5,19 +5,22 @@
 用法：.venv\\Scripts\\pyinstaller.exe aoi_daemon.spec --noconfirm
 
 说明：
-- 打包内置资源：fonts/icons/sounds（其余资源运行时从应用运行根目录读取，
-  语音模型支持应用内下载）
+- 打包内置资源：fonts/icons/model（语音模型走应用内下载）
 - 收集语音链路原生依赖（sounddevice / faster-whisper / ctranslate2）
 - 子进程启动画面通过 --splash-child 参数复用本 exe，无需额外文件
 """
+import os
+
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
+# 只收集实际存在的资源目录：目录被移除时不再让整个打包失败
+_SPEC_DIR = globals().get("SPECPATH", os.getcwd())
 datas = [
-    ("resources/fonts", "resources/fonts"),
-    ("resources/icons", "resources/icons"),
-    ("resources/sounds", "resources/sounds"),
-    ("splash_child.py", "."),
+    (rel, rel)
+    for rel in ("resources/fonts", "resources/icons", "resources/model")
+    if os.path.isdir(os.path.join(_SPEC_DIR, rel))
 ]
+datas.append(("splash_child.py", "."))
 
 # 语音链路的原生库与数据（sounddevice 的 portaudio、faster-whisper 的 ctranslate2）
 for pkg in ("sounddevice", "faster_whisper", "ctranslate2"):

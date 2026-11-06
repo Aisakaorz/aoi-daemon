@@ -25,12 +25,19 @@ import sys
 # 绑定到原始 fd 来保留。
 # 打包后的窗口程序（console=False）没有 fd 2，此时跳过重定向。
 # ------------------------------------------------------------------
+# 保留终端原本的编码：中文 Windows 控制台多为 cp936，IDE / Windows Terminal 多为 UTF-8。
+# 若让 TextIOWrapper 自行猜测，Python 层的中文 traceback 会按错误编码输出成乱码。
+_stderr_encoding = getattr(sys.stderr, "encoding", None) or "utf-8"
+_stderr_errors = getattr(sys.stderr, "errors", None) or "replace"
 _original_stderr_fd = None
 try:
     _original_stderr_fd = os.dup(2)
     # 恢复 Python 层的 sys.stderr，确保异常和 print(..., file=sys.stderr) 正常显示
     sys.stderr = io.TextIOWrapper(
-        os.fdopen(_original_stderr_fd, "wb"), line_buffering=True
+        os.fdopen(_original_stderr_fd, "wb"),
+        encoding=_stderr_encoding,
+        errors=_stderr_errors,
+        line_buffering=True,
     )
     _original_stderr_fd = None  # 所有权已移交给 sys.stderr
     _devnull = os.open(os.devnull, os.O_WRONLY)
@@ -45,22 +52,29 @@ os.environ["QT_LOGGING_RULES"] = "qt.multimedia.ffmpeg=false"
 
 from utils import config_manager as cfg
 from utils.logger import get_logger
-from utils.paths import app_root, app_icon_path
+from utils.paths import app_root, app_icon_path, bundled
 
 logger = get_logger(__name__)
 
-# resources/model/ 路径（用户自备模型，置于应用根目录）
-_MODEL_DIR = app_root("resources", "model")
+# 模型目录：内置资源（打包后位于 _MEIPASS）优先，应用运行根目录兜底
+_MODEL_DIRS = (bundled("resources", "model"), app_root("resources", "model"))
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def _has_model_files() -> bool:
-    """检查当前使魔档案指定的模型入口是否存在（兼容旧布局：resources/model/ 下任一模型的存在性）"""
+    """检查当前使魔档案指定的模型入口是否存在（兼容旧布局：任一模型目录下有 *.model.json）"""
     from core.character import character_model_json
     if os.path.exists(character_model_json()):
         return True
-    pattern = os.path.join(_MODEL_DIR, "**", "*.model.json")
-    return len(glob.glob(pattern, recursive=True)) > 0
+    for base in _MODEL_DIRS:
+        try:
+            if os.path.isdir(base) and glob.glob(
+                os.path.join(base, "**", "*.model.json"), recursive=True
+            ):
+                return True
+        except OSError:
+            continue
+    return False
 
 
 def _show_missing_model_dialog() -> None:

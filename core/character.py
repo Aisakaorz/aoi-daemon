@@ -57,10 +57,11 @@ def current_character() -> dict:
 
 
 def character_model_json() -> str:
-    """当前使魔的模型入口文件绝对路径"""
-    return os.path.join(_app_root(), current_character()["model_json"])
+    """当前使魔的模型入口文件绝对路径。
 
-
-def _app_root() -> str:
-    from utils.paths import app_root
-    return app_root()
+    模型随 exe 打包时位于内置资源目录（_MEIPASS），因此优先查内置资源；
+    找不到再回退应用运行根目录，保留「用户自行放置/替换模型」的能力。
+    """
+    rel = current_character()["model_json"]
+    from utils.paths import find_asset, app_root
+    return find_asset(rel) or app_root(rel)

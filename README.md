@@ -46,6 +46,8 @@ python main.py
 
 启动后葵酱会出现在屏幕右下角。语音转文字模型首次使用时按提示在「设置」里下载（约 75MB），也可手动放到 `resources/whisper/tiny/`。
 
+> 模型文件放在 `resources/model/`：把自己的模型文件夹放进去后，在 `core/character.py` 的 `CHARACTERS` 里登记一条档案，再用 `config.json` 的 `character_id` 切换使魔。
+
 ## 🕹 使用
 
 | 操作 | 说明 |
@@ -89,7 +91,7 @@ aoi-daemon/
 ├── ai/        聊天 Provider（本地占位回复）
 ├── voice/     语音模型管理与转录
 ├── utils/     配置、路径、字体、日志
-└── resources/ 图标、字体等资源
+└── resources/ 图标、字体、模型等资源
 ```
 
 ## 📄 资源声明

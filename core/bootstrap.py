@@ -17,9 +17,8 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# 应用版本号（关于对话框显示，随版本更新）
-# 与 README / PRD / TASK 的版本路线图保持一致，每次发版同步修改
-APP_VERSION = "0.1.27"
+# 应用版本号（关于卡片与设置窗口显示，发版时同步修改）
+APP_VERSION = "0.1.28"
 
 
 def setup_platform_env() -> None:

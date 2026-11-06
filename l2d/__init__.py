@@ -42,7 +42,11 @@ except Exception as _e:
         from live2d.v2cpp import LAppModel, MotionPriority, MotionGroup, HitArea
     except Exception as _e2:
         sys.path = _original_path
-        raise ImportError(f"无法导入第三方 live2d.v2 或 live2d.v2cpp 模块: v2={_e}, v2cpp={_e2}")
+        # 纯 ASCII：这是启动最早期的错误，保证任何终端编码下都能读，不会出现乱码
+        raise ImportError(
+            "Cannot import live2d.v2 or live2d.v2cpp. "
+            f"v2={_e}; v2cpp={_e2}"
+        )
 
 # 恢复 sys.path
 sys.path = _original_path
