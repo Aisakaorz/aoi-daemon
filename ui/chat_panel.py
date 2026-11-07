@@ -14,6 +14,7 @@ from PySide6.QtGui import (
 
 from utils.logger import get_logger
 from utils.font_manager import body_font, body_family
+from ui.icons import icon_pixmap, ICON_COLOR_LIGHT
 
 logger = get_logger(__name__)
 
@@ -55,23 +56,25 @@ class BubbleWidget(QWidget):
         # 非系统气泡底部留尾巴空间（galgame 气泡小尾巴）
         self._tail_extra = 8 if not is_system else 0
 
+        # 统一到珊瑚粉 / 奶油白设计系统：用户=珊瑚粉，使魔=奶油白，系统=浅粉
+        # 文字统一 #4A3F3A，避免蓝 / 灰 / 棕三套文字色混用
         if is_system:
             self._text_color = QColor("#4A3F3A")
-            self._bg_start = QColor("#FFC8C3")
-            self._bg_end = QColor("#FFB3AD")
+            self._bg_start = QColor("#FFD9D4")
+            self._bg_end = QColor("#FFB4AB")
             self._font = body_font(8)
             self.setFont(self._font)
             self._pad_h = 10
             self._pad_v = 5
             self._radius = 10
         elif is_user:
-            self._text_color = QColor("#1A3A5C")
-            self._bg_start = QColor("#A0D8EF")
-            self._bg_end = QColor("#7ECBF5")
+            self._text_color = QColor("#4A3F3A")
+            self._bg_start = QColor("#FFB4AB")
+            self._bg_end = QColor("#FF8A80")
         else:
-            self._text_color = QColor("#333333")
-            self._bg_start = QColor("#FFF5F5")
-            self._bg_end = QColor("#FFE4E1")
+            self._text_color = QColor("#4A3F3A")
+            self._bg_start = QColor("#FFFBF8")
+            self._bg_end = QColor("#FFF0EA")
 
         # QLabel 显示文本，支持鼠标/键盘选择和复制
         self._label = QLabel(self)
@@ -200,7 +203,7 @@ class BubbleWidget(QWidget):
         gradient.setColorAt(0, self._bg_start)
         gradient.setColorAt(1, self._bg_end)
         painter.setBrush(QBrush(gradient))
-        painter.setPen(QPen(QColor(0, 0, 0, 15), 1))
+        painter.setPen(QPen(QColor(242, 102, 139, 90), 1.2))
         painter.drawRoundedRect(body, self._radius, self._radius)
 
 
@@ -264,23 +267,21 @@ class ChatPanel(QWidget):
         layout.addLayout(self._msg_layout, stretch=1)
 
         # 跳到底部按钮（滚动到上方历史时显示）
-        self._scroll_to_bottom_btn = QLabel("▼", self)
+        self._scroll_to_bottom_btn = QLabel(self)
         self._scroll_to_bottom_btn.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._scroll_to_bottom_btn.setPixmap(icon_pixmap("down", 12))
         family = body_family()
         self._scroll_to_bottom_btn.setStyleSheet("""
             QLabel {
                 background-color: rgba(255, 248, 243, 0.95);
-                color: #4A3F3A;
                 border: 1.5px solid rgba(255, 170, 160, 0.75);
                 border-radius: 6px;
-                font-size: 9pt;
-                font-family: "__FAMILY__";
             }
             QLabel:hover {
                 background-color: rgba(255, 230, 225, 0.98);
                 border: 1.5px solid rgba(255, 140, 130, 0.9);
             }
-        """.replace("__FAMILY__", family))
+        """)
         self._scroll_to_bottom_btn.setFixedSize(24, 20)
         self._scroll_to_bottom_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._scroll_to_bottom_btn.hide()
@@ -323,19 +324,19 @@ class ChatPanel(QWidget):
         self._input.installEventFilter(self)
         frame_layout.addWidget(self._input)
 
-        # 文件上传按钮（📎），样式与语音按钮一致
-        self._upload_btn = QLabel("📎", self._input_frame)
+        # 文件上传按钮（自绘上传箭头，避免 emoji 渲染成灰黑方块）
+        self._upload_btn = QLabel(self._input_frame)
         self._upload_btn.setFixedSize(28, 28)
         self._upload_btn.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._upload_btn.setPixmap(icon_pixmap("upload", 18))
         self._upload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._upload_btn.setStyleSheet("""
             QLabel {
-                background-color: rgba(200, 160, 140, 0.35);
+                background-color: rgba(255, 240, 235, 0.9);
                 border-radius: 8px;
-                font-size: 11pt;
             }
             QLabel:hover {
-                background-color: rgba(200, 160, 140, 0.5);
+                background-color: rgba(255, 214, 205, 0.95);
             }
         """)
         self._upload_btn.mousePressEvent = lambda e: self._on_upload_clicked() if e.button() == Qt.MouseButton.LeftButton else None
@@ -720,8 +721,9 @@ class ChatPanel(QWidget):
 
         self._typing_dots: list[QLabel] = []
         for i in range(3):
-            dot = QLabel("●")
-            dot.setStyleSheet("color: #CCCCCC; font-size: 8px;")
+            dot = QLabel()
+            dot.setFixedSize(8, 8)
+            dot.setStyleSheet("background-color: #FFB4AB; border-radius: 4px;")
             layout.addWidget(dot)
             self._typing_dots.append(dot)
 
@@ -749,7 +751,8 @@ class ChatPanel(QWidget):
             anim.setEasingCurve(QEasingCurve.Type.InOutSine)
             anim.setLoopCount(-1)
             anim.valueChanged.connect(lambda v, d=dot: d.setStyleSheet(
-                f"color: rgba(204, 204, 204, {int(v * 255)}); font-size: 8px;"
+                f"background-color: rgba(242, 102, 139, {int(v * 255)});"
+                " border-radius: 4px;"
             ))
             QTimer.singleShot(i * 200, anim.start)
             dot.setProperty("_anim", anim)
@@ -1059,7 +1062,7 @@ class ChatPanel(QWidget):
     # ---- 内部类：下载图标 ----
 
     class _DownloadIcon(QWidget):
-        """下载图标：默认沙漏，悬停叉号，点击取消"""
+        """下载图标：默认下载箭头，悬停叉号，点击取消"""
         clicked = Signal()
 
         def __init__(self, parent=None):
@@ -1072,15 +1075,16 @@ class ChatPanel(QWidget):
                     border-radius: 8px;
                 }
             """)
-            self._label = QLabel("⏳", self)
+            self._label = QLabel(self)
             self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._label.setPixmap(icon_pixmap("download", 18))
             self._label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             layout = QVBoxLayout(self)
             layout.setContentsMargins(0, 0, 0, 0)
             layout.addWidget(self._label)
 
         def enterEvent(self, event) -> None:
-            self._label.setText("❌")
+            self._label.setPixmap(icon_pixmap("close", 16))
             self.setStyleSheet("""
                 QWidget {
                     background-color: rgba(255, 230, 225, 0.98);
@@ -1090,7 +1094,7 @@ class ChatPanel(QWidget):
             super().enterEvent(event)
 
         def leaveEvent(self, event) -> None:
-            self._label.setText("⏳")
+            self._label.setPixmap(icon_pixmap("download", 18))
             self.setStyleSheet("""
                 QWidget {
                     background-color: rgba(255, 248, 243, 0.95);
@@ -1150,8 +1154,10 @@ class ChatPanel(QWidget):
             self.setFixedSize(28, 28)
             self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-            self._icon = QLabel("🎙", self)
+            self._icon = QLabel(self)
             self._icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._icon.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            self._icon.setPixmap(icon_pixmap("mic", 18))
             layout = QVBoxLayout(self)
             layout.setContentsMargins(0, 0, 0, 0)
             layout.addWidget(self._icon)
@@ -1159,7 +1165,7 @@ class ChatPanel(QWidget):
             # 音量可视化覆盖层（录制时从下到上填充）
             self._volume_overlay = QWidget(self)
             self._volume_overlay.setStyleSheet(
-                "background-color: rgba(160, 50, 50, 0.55); border-radius: 6px;"
+                "background-color: rgba(255, 255, 255, 0.75); border-radius: 6px;"
             )
             self._volume_overlay.setGeometry(2, self.height() - 2, self.width() - 4, 2)
             self._volume_overlay.hide()
@@ -1180,7 +1186,7 @@ class ChatPanel(QWidget):
             h = max(h, 4)
             radius = min(3, h // 2)
             self._volume_overlay.setStyleSheet(
-                f"background-color: rgba(160, 50, 50, 0.55); border-radius: {radius}px;"
+                f"background-color: rgba(255, 255, 255, 0.75); border-radius: {radius}px;"
             )
             self._volume_overlay.setGeometry(
                 2, self.height() - 2 - h, self.width() - 4, h
@@ -1188,28 +1194,32 @@ class ChatPanel(QWidget):
             self._volume_overlay.show()
 
         def _set_style(self, state: str) -> None:
+            # 背景统一到珊瑚粉 / 奶油白；录音态用实心粉 + 白色麦克风
             if state == "recording":
+                self._icon.setPixmap(icon_pixmap("mic", 18, ICON_COLOR_LIGHT))
                 self.setStyleSheet("""
                     QWidget {
-                        background-color: rgba(220, 100, 100, 0.75);
+                        background-color: #F2668B;
                         border-radius: 8px;
                     }
                 """)
             elif state == "pending":
+                self._icon.setPixmap(icon_pixmap("mic", 18))
                 self.setStyleSheet("""
                     QWidget {
-                        background-color: rgba(200, 160, 140, 0.55);
+                        background-color: rgba(255, 214, 205, 0.95);
                         border-radius: 8px;
                     }
                 """)
             else:
+                self._icon.setPixmap(icon_pixmap("mic", 18))
                 self.setStyleSheet("""
                     QWidget {
-                        background-color: rgba(200, 160, 140, 0.35);
+                        background-color: rgba(255, 240, 235, 0.9);
                         border-radius: 8px;
                     }
                     QWidget:hover {
-                        background-color: rgba(200, 160, 140, 0.5);
+                        background-color: rgba(255, 214, 205, 0.95);
                     }
                 """)
 

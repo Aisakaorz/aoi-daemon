@@ -18,7 +18,7 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 # 应用版本号（关于卡片与设置窗口显示，发版时同步修改）
-APP_VERSION = "0.1.28"
+APP_VERSION = "0.1.29"
 
 
 def setup_platform_env() -> None:
@@ -29,6 +29,16 @@ def setup_platform_env() -> None:
     elif sys.platform == "win32":
         os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
         os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
+        # 让任务栏把本进程当独立应用，图标取窗口图标；
+        # 开发模式（python main.py）下不再显示 python.exe 的图标
+        try:
+            import ctypes
+            fn = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
+            fn.argtypes = [ctypes.c_wchar_p]
+            fn.restype = ctypes.c_long
+            fn("AoiDaemon.DesktopPet")
+        except Exception:
+            pass
         logger.info("Windows 平台：启用高 DPI 缩放")
 
 

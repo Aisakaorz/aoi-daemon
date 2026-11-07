@@ -218,8 +218,11 @@ class SettingsDialog(QWidget):
         # Qt.Window：独立顶层窗口，避免 macOS 上父窗口为 Tool 的弹窗焦点坑
         super().__init__(main_window, Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         self._mw = main_window
-        self.setFixedSize(340, 444)
+        self.setFixedSize(340, 420)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        # 主窗口是 Qt.Tool 窗口，不计入 Qt 的「最后一个窗口」判定；
+        # 本窗口若参与该判定，点 ✕ / Esc 关闭时会触发 QApplication 自动退出。
+        self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         self.setWindowTitle("设置 · 葵之使魔")
         # 图标路径由 utils.paths 锚定：任意工作目录 / 打包后都能取到
         icon_path = app_icon_path()

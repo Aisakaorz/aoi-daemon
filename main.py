@@ -261,6 +261,16 @@ def _main_impl() -> int:
     from PySide6.QtWidgets import QApplication
 
     app = QApplication(sys.argv)
+    # 桌宠由托盘 / 退出菜单控制生命周期：隐藏主窗口或关闭弹窗都不应退出应用
+    # （主窗口是 Qt.Tool 窗口，Qt 默认会把设置窗口当成「最后一个主窗口」）
+    app.setQuitOnLastWindowClosed(False)
+    # 全局窗口图标：任务栏 / 窗口标题栏都显示葵酱，而不是解释器的默认图标
+    icon_path = app_icon_path()
+    if icon_path:
+        from PySide6.QtGui import QIcon
+        icon = QIcon(icon_path)
+        if not icon.isNull():
+            app.setWindowIcon(icon)
     app.setApplicationName("葵之使魔")
     app.setApplicationDisplayName("AoiDaemon")
 

@@ -11,8 +11,8 @@ from ctypes import wintypes
 from typing import Optional
 
 from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QApplication, QSystemTrayIcon, QMenu
-from PySide6.QtCore import Qt, QPoint, QByteArray, QTimer, QRectF
-from PySide6.QtGui import QMouseEvent, QPainter, QPainterPath, QColor, QPen
+from PySide6.QtCore import Qt, QPoint, QByteArray, QTimer
+from PySide6.QtGui import QMouseEvent, QPainter
 
 from utils import config_manager as cfg
 
@@ -96,15 +96,12 @@ class _CuteMenu(QMenu):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
     def paintEvent(self, event) -> None:
-        # 先画圆角卡片，再让样式绘制条目（样式表已把容器背景设为透明）
+        # 与启动画面 / 关于 / 设置同款卡片：奶油渐变 + 珊瑚粉双边框 + 手绘柔影
+        # 先画卡片，再让样式绘制条目（QSS 已把容器背景设为透明）
+        from ui.card_paint import paint_cute_card
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        path = QPainterPath()
-        path.addRoundedRect(rect, self._RADIUS, self._RADIUS)
-        p.fillPath(path, QColor("#FFF8F5"))
-        p.setPen(QPen(QColor("#FFD0C8"), 1))
-        p.drawPath(path)
+        paint_cute_card(p, self.width(), self.height(), self._RADIUS, 8)
         p.end()
         super().paintEvent(event)
 
@@ -189,6 +186,15 @@ class MainWindow(QMainWindow):
         # 允许鼠标事件穿透但又能接收交互：关键属性组合
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
         self.setAttribute(Qt.WidgetAttribute.WA_MouseTracking, True)
+
+        # 显式窗口图标：开发模式下 Windows 任务栏不再退回 python.exe 的默认图标
+        from utils.paths import app_icon_path
+        from PySide6.QtGui import QIcon
+        icon_path = app_icon_path()
+        if icon_path:
+            icon = QIcon(icon_path)
+            if not icon.isNull():
+                self.setWindowIcon(icon)
 
         self.resize(_DEFAULT_WIDTH, _DEFAULT_HEIGHT)
         self.setMinimumSize(200, 300)
@@ -301,7 +307,8 @@ class MainWindow(QMainWindow):
         self._menu = _CuteMenu(self)
         self._menu.setFont(cute_font(10))
         self._menu.setStyleSheet(_MENU_QSS)
-        self._menu.setContentsMargins(4, 6, 4, 6)
+        # 上下留白 = 两倍行间距，使首尾文字到卡片边框的距离与行间一致
+        self._menu.setContentsMargins(8, 16, 8, 16)
 
         # ---- 显示/隐藏使魔 ----
         self._action_visible = QAction(f"隐藏{self._char_name}🌻", self)
@@ -762,7 +769,12 @@ class MainWindow(QMainWindow):
     def _show_about(self) -> None:
         """显示关于信息（圆角卡片式弹窗，与启动画面同一设计语言）"""
         from ui.about_dialog import AboutDialog
-        AboutDialog(self).exec()
+        # 不挂到置顶的 Tool 主窗口下，避免继承其层级 / 焦点问题
+        dlg = AboutDialog()
+        # 居中于桌宠窗口（葵酱所在位置），而不是整块屏幕中心
+        center = self.frameGeometry().center()
+        dlg.move(center.x() - dlg.width() // 2, center.y() - dlg.height() // 2)
+        dlg.exec()
 
     def _on_quit(self) -> None:
         """退出应用（保存配置、清空临时文件后退出）"""

@@ -32,10 +32,24 @@ class AboutDialog(QDialog):
     _CARD_MARGIN = 12
 
     def __init__(self, parent=None):
-        super().__init__(parent, Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        # 独立顶层 + 置顶：主窗口是置顶的 Qt.Tool，普通 Dialog 会被压在角色后面且拿不到焦点
+        super().__init__(
+            parent,
+            Qt.WindowType.Window
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint,
+        )
         self.setFixedSize(280, 216)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         self.setModal(True)
+        from utils.paths import app_icon_path
+        from PySide6.QtGui import QIcon
+        icon_path = app_icon_path()
+        if icon_path:
+            icon = QIcon(icon_path)
+            if not icon.isNull():
+                self.setWindowIcon(icon)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 18, 20, 14)
@@ -201,6 +215,11 @@ class AboutDialog(QDialog):
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(color)
         p.drawPath(path)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.raise_()
+        self.activateWindow()
 
     def mousePressEvent(self, event) -> None:
         """点击任意处关闭"""
