@@ -222,6 +222,15 @@ class MainWindow(QMainWindow):
         # 窗口 resize 时重新调整聊天面板位置
         self.resizeEvent = self._on_resize
 
+        # VTuber 常驻装饰：LIVE 状态牌 + 点击爱心粒子层（均为鼠标穿透的叠加层）
+        # 注意：self._character 在 __init__ 后半段才赋值，这里直接读档案，避免启动期 AttributeError
+        from ui.vtuber_decor import LiveBadge, HeartBurst
+        from core.character import current_character
+        self._live_badge = LiveBadge(current_character()["name"], central)
+        self._heart_burst = HeartBurst(central)
+        self._canvas.tapped.connect(self._heart_burst.burst)
+        self._position_decor()
+
     def _apply_config(self) -> None:
         """从 config.json 恢复用户配置（角色大小、置顶、吸附、聊天、窗口位置）"""
         # 1. 角色大小（先恢复，会改变窗口尺寸）
@@ -583,10 +592,21 @@ class MainWindow(QMainWindow):
                 chat.move(cx, cy)
                 chat.raise_()
 
+    def _position_decor(self) -> None:
+        """LIVE 牌水平居中、贴近角色头顶；粒子层覆盖整个窗口；两者都不参与布局"""
+        # 顶部留白按窗口高度取比例（默认 600 高 → y≈30），比贴着窗口顶端更靠近角色；
+        # 角色缩放导致窗口变高时，牌与角色的相对距离保持一致。
+        badge_y = max(10, int(self.height() * 0.05))
+        self._live_badge.move((self.width() - self._live_badge.width()) // 2, badge_y)
+        self._heart_burst.setGeometry(0, 0, self.width(), self.height())
+        self._live_badge.raise_()
+        self._heart_burst.raise_()
+
     def _on_resize(self, event) -> None:
         """窗口大小变化时，重新调整聊天面板位置并防抖保存尺寸"""
         super().resizeEvent(event)
         self._move_chat_to_bottom()
+        self._position_decor()
         self._save_geometry_timer.start(500)
 
     def moveEvent(self, event) -> None:

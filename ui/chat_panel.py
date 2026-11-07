@@ -15,6 +15,7 @@ from PySide6.QtGui import (
 from utils.logger import get_logger
 from utils.font_manager import body_font, body_family
 from ui.icons import icon_pixmap, ICON_COLOR_LIGHT
+from ui.vtuber_decor import TypingDots, round_avatar_pixmap
 
 logger = get_logger(__name__)
 
@@ -55,6 +56,10 @@ class BubbleWidget(QWidget):
         self._radius = 12
         # 非系统气泡底部留尾巴空间（galgame 气泡小尾巴）
         self._tail_extra = 8 if not is_system else 0
+        # 使魔消息在气泡内左侧带小头像：随气泡一起淡出，不额外占用 row 布局
+        self._show_avatar = (not is_user) and (not is_system)
+        self._avatar = round_avatar_pixmap(20) if self._show_avatar else None
+        self._avatar_w = 28 if self._show_avatar else 0
 
         # 统一到珊瑚粉 / 奶油白设计系统：用户=珊瑚粉，使魔=奶油白，系统=浅粉
         # 文字统一 #4A3F3A，避免蓝 / 灰 / 棕三套文字色混用
@@ -148,7 +153,7 @@ class BubbleWidget(QWidget):
         return lines
 
     def _compute_size(self) -> None:
-        content_max_w = self._max_w - self._pad_h * 2
+        content_max_w = self._max_w - self._pad_h * 2 - self._avatar_w
 
         self._lines = self._wrap_text(self._raw_text, content_max_w)
 
@@ -157,12 +162,15 @@ class BubbleWidget(QWidget):
         self._label.adjustSize()
 
         # 气泡尺寸以 QLabel 实际渲染尺寸为基准，确保文字完整显示
-        w = min(self._label.width() + self._pad_h * 2, self._max_w)
+        w = min(self._label.width() + self._pad_h * 2 + self._avatar_w, self._max_w)
         h = self._label.height() + self._pad_v * 2 + self._tail_extra
         self.setFixedSize(w, h)
 
         # QLabel 在气泡内水平居中、垂直居中（尾巴区域不占文本空间）
-        label_x = self._pad_h + (w - self._pad_h * 2 - self._label.width()) // 2
+        label_x = (
+            self._pad_h + self._avatar_w
+            + (w - self._pad_h * 2 - self._avatar_w - self._label.width()) // 2
+        )
         label_y = self._pad_v + (h - self._tail_extra - self._pad_v * 2 - self._label.height()) // 2
         self._label.setGeometry(label_x, label_y, self._label.width(), self._label.height())
 
@@ -205,6 +213,26 @@ class BubbleWidget(QWidget):
         painter.setBrush(QBrush(gradient))
         painter.setPen(QPen(QColor(242, 102, 139, 90), 1.2))
         painter.drawRoundedRect(body, self._radius, self._radius)
+
+        # 使魔消息的小头像（画在气泡内部，随 painter 的 opacity 一起淡出）
+        # 右界取「文字墨迹左边缘」而不是 label.x()：QLabel 控件几何之后还有
+        # 字形 leftBearing，直接按控件几何算会把头像算得偏左；
+        # 左界取气泡描边可见处（1px），这样左右留白按肉眼所见严格对称。
+        # 头像位图按 devicePixelRatio 超采样，定位要用逻辑尺寸。
+        if self._avatar and not self._avatar.isNull():
+            ratio = self._avatar.devicePixelRatio() or 1.0
+            aw = self._avatar.width() / ratio
+            ah = self._avatar.height() / ratio
+            fm = self._label.fontMetrics()
+            first = (self._lines[0][0] if self._lines and self._lines[0] else " ")
+            ink_left = self._label.x() + max(0, fm.leftBearing(first))
+            ax = (1.0 + ink_left - aw) / 2.0
+            # 垂直对齐「第一行文字」而不是整块 label 居中：主流 IM（Slack /
+            # Discord / Telegram）多行消息时头像都是顶部对齐；用整块高度居中
+            # 会让头像落在两行之间发飘，且单行 / 多行位置不一致。
+            line_h = fm.height()
+            ay = self._label.y() + (line_h - ah) / 2.0
+            painter.drawPixmap(int(round(ax)), int(round(ay)), self._avatar)
 
 
 class ChatPanel(QWidget):
@@ -708,67 +736,30 @@ class ChatPanel(QWidget):
         self._adjust_height()
 
     def show_typing_indicator(self) -> None:
-        """显示 AI 正在输入的指示器（三个跳动小点）"""
+        """显示 AI 正在输入的指示器（墙钟驱动的三个呼吸圆点）"""
         if hasattr(self, "_typing_widget") and self._typing_widget is not None:
             return
-        self._typing_widget = QWidget()
-        self._typing_widget.setStyleSheet("background: transparent;")
+        self._typing_widget = TypingDots()
         # 固定指示器高度，避免 height() 返回 0
         self._typing_widget.setProperty("_layout_height", 14)
-        layout = QHBoxLayout(self._typing_widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-
-        self._typing_dots: list[QLabel] = []
-        for i in range(3):
-            dot = QLabel()
-            dot.setFixedSize(8, 8)
-            dot.setStyleSheet("background-color: #FFB4AB; border-radius: 4px;")
-            layout.addWidget(dot)
-            self._typing_dots.append(dot)
-
-        layout.addStretch()
         self._msg_layout.addWidget(self._typing_widget)
 
         # 确保输入框始终在最上层
         self._input_frame.raise_()
 
-        new_height = self._adjust_height()
+        self._adjust_height()
         self._relayout_messages()
         self._update_opacity_by_position()
         self.geometry_changed.emit()
-        self._start_typing_animation()
-
-    def _start_typing_animation(self) -> None:
-        """启动输入指示器圆点波浪动画"""
-        if not hasattr(self, "_typing_dots") or not self._typing_dots:
-            return
-        for i, dot in enumerate(self._typing_dots):
-            anim = QVariantAnimation(dot)
-            anim.setDuration(600)
-            anim.setStartValue(0.3)
-            anim.setEndValue(1.0)
-            anim.setEasingCurve(QEasingCurve.Type.InOutSine)
-            anim.setLoopCount(-1)
-            anim.valueChanged.connect(lambda v, d=dot: d.setStyleSheet(
-                f"background-color: rgba(242, 102, 139, {int(v * 255)});"
-                " border-radius: 4px;"
-            ))
-            QTimer.singleShot(i * 200, anim.start)
-            dot.setProperty("_anim", anim)
+        self._typing_widget.start()
 
     def hide_typing_indicator(self) -> None:
         """隐藏并销毁输入指示器"""
         if hasattr(self, "_typing_widget") and self._typing_widget is not None:
-            if hasattr(self, "_typing_dots"):
-                for dot in self._typing_dots:
-                    anim = dot.property("_anim")
-                    if anim:
-                        anim.stop()
+            self._typing_widget.stop()
             self._msg_layout.removeWidget(self._typing_widget)
             self._typing_widget.deleteLater()
             self._typing_widget = None
-            self._typing_dots = []
             new_height = self._adjust_height()
             self._relayout_messages()
             self._update_opacity_by_position()
@@ -1025,7 +1016,7 @@ class ChatPanel(QWidget):
             self._update_download_style(self._download_target_pct)
             self._download_timer.stop()
             return
-        step = max(1, int(abs(diff) * 0.2))
+        step = max(1, int(abs(diff) * 0.35))
         self._download_current_pct = current + (step if diff > 0 else -step)
         self._update_download_style(self._download_current_pct)
 
@@ -1034,7 +1025,7 @@ class ChatPanel(QWidget):
         from voice.model_manager import _fmt_bytes
         self._download_target_pct = pct
         if not self._download_timer.isActive():
-            self._download_timer.start(16)  # ~60fps
+            self._download_timer.start(33)  # 33ms 节拍，与设计系统一致
         detail = f"{_fmt_bytes(downloaded)} / {_fmt_bytes(total)}"
         if speed:
             detail += f"  {speed}"

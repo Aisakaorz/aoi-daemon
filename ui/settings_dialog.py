@@ -101,7 +101,7 @@ class ToggleSwitch(QWidget):
         self._target = 0.0
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
-        self._timer.start(16)
+        self._timer.start(33)
 
     def setChecked(self, checked: bool) -> None:
         checked = bool(checked)
@@ -123,7 +123,7 @@ class ToggleSwitch(QWidget):
                 self._pos = self._target
                 self.update()
             return
-        self._pos += diff * 0.28
+        self._pos += diff * 0.48
         self.update()
 
     def mouseReleaseEvent(self, event) -> None:

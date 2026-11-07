@@ -86,6 +86,7 @@ class Live2DCanvas(QOpenGLWidget):
 
     # 模型初始化完成信号（用于关闭启动画面）
     model_ready = Signal()
+    tapped = Signal(QPoint)  # 点击命中角色时发出 canvas 局部坐标，供爱心粒子使用
     # 加载进度信号（0~100，用于更新启动画面进度条）
     loading_progress = Signal(int)
 
@@ -693,6 +694,7 @@ class Live2DCanvas(QOpenGLWidget):
         # 检测头部
         if head_hit:
             logger.debug("点击命中: head")
+            self.tapped.emit(QPoint(int(x), int(y)))
             self._state.force_transit(CharacterState.TAP_HEAD)
             self._play_sound("flickHead_00.mp3")
             self._schedule_return_to_idle(3000)
@@ -701,6 +703,7 @@ class Live2DCanvas(QOpenGLWidget):
         # 检测身体
         if body_hit:
             logger.debug("点击命中: body")
+            self.tapped.emit(QPoint(int(x), int(y)))
             self._state.force_transit(CharacterState.TAP_BODY)
             snd_no = random.randint(0, 2)
             self._play_sound(f"tapBody_0{snd_no}.mp3")

@@ -39,7 +39,7 @@ class AboutDialog(QDialog):
             | Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint,
         )
-        self.setFixedSize(280, 216)
+        self.setFixedSize(280, 230)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         self.setModal(True)
@@ -91,7 +91,13 @@ class AboutDialog(QDialog):
 
         layout.addSpacing(4)
 
-        foot = QLabel("Powered by Aoi🌻 Kimi🤖 · MIT License")
+        # 协作开发署名：Aoi🌻 是作者本人，其余协作模型统一跟 🤖（与 Kimi 一致），
+        # 一眼区分「本人 / AI」。全部只写品牌名不写版本号，避免过时：
+        # Kimi 用过 2.6/2.7/2.8，DeepSeek 是 V4 系列，混元官方系列代号为 Hy
+        # （Hy3/Hy4/Hy5 为具体代次，Hy4 的「4」本身也是版本号）。
+        # 卡片仅 280 宽，单行放不下四个名字，改为两行并允许自动换行。
+        foot = QLabel("Powered by Aoi🌻 · Kimi🤖\nDeepSeek🤖 · Hy🤖 · MIT License")
+        foot.setWordWrap(True)
         foot.setFont(cute_font(8))
         foot.setStyleSheet("color: #C9A9A0; background: transparent; border: none;")
         foot.setAlignment(Qt.AlignmentFlag.AlignCenter)

@@ -4,8 +4,8 @@
 提供最小化到托盘、显示/隐藏窗口、退出等功能
 """
 from PySide6.QtWidgets import QSystemTrayIcon, QMenu, QWidget, QApplication
-from PySide6.QtGui import QIcon, QAction
-from PySide6.QtCore import Signal, QObject
+from PySide6.QtGui import QIcon, QAction, QPainter, QColor, QPen
+from PySide6.QtCore import Signal, QObject, QRectF
 
 from utils.logger import get_logger
 from utils.paths import app_icon_path
@@ -42,6 +42,17 @@ class TrayIcon(QObject):
         if path:
             icon = QIcon(path)
             if not icon.isNull():
+                # 右下角在线点（复用头像徽章的绿点配色），表达「使魔在线」
+                pm = icon.pixmap(32, 32)
+                if not pm.isNull():
+                    p = QPainter(pm)
+                    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+                    r = 4.5
+                    p.setBrush(QColor("#7FD1A6"))
+                    p.setPen(QPen(QColor("#FFFFFF"), 1.5))
+                    p.drawEllipse(QRectF(32 - r * 2 - 1, 32 - r * 2 - 1, r * 2, r * 2))
+                    p.end()
+                    icon = QIcon(pm)
                 self._tray.setIcon(icon)
                 logger.info(f"托盘图标加载成功: {path}")
                 return
