@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import math
 """
 聊天气泡面板
 紧凑设计：输入框 + 最近消息气泡，像漫画对话框一样
@@ -7,7 +8,8 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QFrame, QDialog, QScrollArea
 )
-from PySide6.QtCore import Qt, Signal, QTimer, QVariantAnimation, QEasingCurve, QEvent, QDateTime, QPoint, QRect, QRectF
+from PySide6.QtCore import (Qt, Signal, QTimer, QVariantAnimation, QEasingCurve,
+                           QEvent, QDateTime, QPoint, QRect, QRectF, QElapsedTimer)
 from PySide6.QtGui import (
     QFont, QPainter, QColor, QLinearGradient, QBrush, QPen, QRegion, QPalette, QPainterPath
 )
@@ -16,8 +18,27 @@ from utils.logger import get_logger
 from utils.font_manager import body_font, body_family
 from ui.icons import icon_pixmap, ICON_COLOR_LIGHT
 from ui.vtuber_decor import TypingDots, round_avatar_pixmap
+from ui.effect_settings import FX_BUBBLE_AVATAR, is_enabled
 
 logger = get_logger(__name__)
+
+
+def _draw_flower(p: QPainter, petal: QColor, core: QColor, edge: QColor, s: float) -> None:
+    """圆润四瓣小花：没有尖角，比四角星更贴奶油粉气泡的萌系风格。
+
+    s 是整体缩放；描边宽度按 1/s 补偿，缩放后视觉粗细保持一致。
+    """
+    p.save()
+    p.scale(s, s)
+    p.setPen(QPen(edge, 1.0 / max(s, 0.2)))
+    p.setBrush(petal)
+    for dx, dy in ((0.0, -3.0), (3.0, 0.0), (0.0, 3.0), (-3.0, 0.0)):
+        p.drawEllipse(QRectF(dx - 2.2, dy - 2.2, 4.4, 4.4))
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(core)
+    p.drawEllipse(QRectF(-1.7, -1.7, 3.4, 3.4))
+    p.restore()
+
 
 # 面板最大高度（px）
 _MAX_PANEL_HEIGHT = 400
@@ -41,7 +62,8 @@ class BubbleWidget(QWidget):
     QGraphicsOpacityEffect 在手动 setGeometry 场景下的渲染异常。
     """
 
-    def __init__(self, text: str, is_user: bool, max_width: int, is_system: bool = False, parent=None):
+    def __init__(self, text: str, is_user: bool, max_width: int, is_system: bool = False,
+                 avatar_enabled: bool | None = None, parent=None):
         super().__init__(parent)
         self._is_user = is_user
         self._is_system = is_system
@@ -56,10 +78,24 @@ class BubbleWidget(QWidget):
         self._radius = 12
         # 非系统气泡底部留尾巴空间（galgame 气泡小尾巴）
         self._tail_extra = 8 if not is_system else 0
-        # 使魔消息在气泡内左侧带小头像：随气泡一起淡出，不额外占用 row 布局
-        self._show_avatar = (not is_user) and (not is_system)
+        # 使魔消息在气泡内左侧带小头像：随气泡一起淡出，不额外占用 row 布局。
+        # 开关状态由 ChatPanel 统一持有并传入（单一状态源，不依赖配置落盘时序）；
+        # avatar_enabled=None 时兼容独立构造，回退读配置。
+        if avatar_enabled is None:
+            avatar_enabled = is_enabled(FX_BUBBLE_AVATAR)
+        self._show_avatar = (not is_user) and (not is_system) and bool(avatar_enabled)
         self._avatar = round_avatar_pixmap(20) if self._show_avatar else None
         self._avatar_w = 28 if self._show_avatar else 0
+        # 每条新消息自带一次小闪花（常驻效果，无开关）：系统提示不闪。
+        # 用户气泡与使魔气泡底色不同，配色在 _paint_sparkle 里分别取。
+        self._sparkle = not is_system
+        self._sparkle_start = QElapsedTimer()
+        self._sparkle_start.start()
+        if self._sparkle:
+            self._sparkle_timer = QTimer(self)
+            self._sparkle_timer.setInterval(33)
+            self._sparkle_timer.timeout.connect(self._tick_sparkle)
+            self._sparkle_timer.start()
 
         # 统一到珊瑚粉 / 奶油白设计系统：用户=珊瑚粉，使魔=奶油白，系统=浅粉
         # 文字统一 #4A3F3A，避免蓝 / 灰 / 棕三套文字色混用
@@ -96,6 +132,52 @@ class BubbleWidget(QWidget):
         self._lines: list[str] = []
         self._compute_size()
         self._update_opacity()
+
+    def _tick_sparkle(self) -> None:
+        """小闪花只闪 1.3s，结束即停表（不新增常驻定时器）"""
+        if self._sparkle_start.elapsed() >= 1300:
+            self._sparkle = False
+            self._sparkle_timer.stop()
+        self.update()
+
+    def _paint_sparkle(self, painter: QPainter, opacity: float) -> None:
+        """右上角小闪花：按气泡底色分别配色，避免「同色系糊在一起」。
+
+        - 用户气泡（珊瑚粉底）：奶白花瓣 + 淡金花心 + 白描边，对比来自深粉底。
+        - 使魔气泡（奶油白底）：**白描边会和底色融在一起，把花瓣轮廓吃掉**，
+          所以改用深玫红描边、花瓣提亮，并放大一档补回视觉重量。
+
+        两种都用圆润四瓣小花而非锋利四角星，左上再带一朵更小的伴花。
+        """
+        t = self._sparkle_start.elapsed() / 1300.0
+        alpha = max(0.0, math.sin(min(1.0, t) * math.pi))
+        if alpha <= 0:
+            return
+        if self._is_user:
+            petal = QColor("#FFF8F2")
+            core = QColor("#FFD98A")
+            side = QColor("#FFE9D2")
+            edge = QColor("#FFFFFF")
+            scale, side_scale = 1.0, 0.5
+            ox, oy = self.width() - 12, 10
+            sx, sy = -11, -8
+        else:
+            petal = QColor("#FF8A80")
+            core = QColor("#FFF6F0")
+            side = QColor("#FFB4AB")
+            edge = QColor("#E0507A")       # 深描边：奶油白底上轮廓才立得住
+            scale, side_scale = 1.22, 0.58
+            ox, oy = self.width() - 13, 11
+            sx, sy = -13, -9
+        painter.save()
+        # 透明度兜底：气泡淡入期间也能看到闪一下
+        painter.setOpacity(alpha * max(0.5, opacity))
+        painter.translate(ox, oy)
+        pulse = 1.0 + 0.10 * math.sin(t * math.tau * 2.5)
+        _draw_flower(painter, petal, core, edge, scale * pulse)
+        painter.translate(sx, sy)
+        _draw_flower(painter, side, core, edge, side_scale * pulse)
+        painter.restore()
 
     def set_fade_opacity(self, opacity: float) -> None:
         """淡入动画使用的透明度（0.0 → 1.0）"""
@@ -151,6 +233,19 @@ class BubbleWidget(QWidget):
             if current:
                 lines.append(current)
         return lines
+
+    def set_avatar(self, enabled: bool) -> bool:
+        """即时切换头像显隐；返回尺寸是否变化（供 ChatPanel 决定是否重排）"""
+        target = bool(enabled) and (not self._is_user) and (not self._is_system)
+        if target == self._show_avatar:
+            return False
+        self._show_avatar = target
+        self._avatar = round_avatar_pixmap(20) if target else None
+        self._avatar_w = 28 if target else 0
+        old_h = self.height()
+        self._compute_size()
+        self.update()
+        return self.height() != old_h
 
     def _compute_size(self) -> None:
         content_max_w = self._max_w - self._pad_h * 2 - self._avatar_w
@@ -234,6 +329,10 @@ class BubbleWidget(QWidget):
             ay = self._label.y() + (line_h - ah) / 2.0
             painter.drawPixmap(int(round(ax)), int(round(ay)), self._avatar)
 
+        # 每条新消息自带一次「小闪花」（常驻装饰、无开关），不占几何、不碰布局
+        if self._sparkle:
+            self._paint_sparkle(painter, opacity)
+
 
 class ChatPanel(QWidget):
     """
@@ -253,6 +352,8 @@ class ChatPanel(QWidget):
         self._setup_ui()
         self._setup_download_tracking()
         self._message_widgets: list[QWidget] = []
+        # 气泡头像开关的单一状态源：新消息一律按它构造，切换时同步更新
+        self._avatars_enabled = is_enabled(FX_BUBBLE_AVATAR)
         # 下载进度平滑动画
         self._download_target_pct = 0
         self._download_timer = QTimer(self)
@@ -441,7 +542,8 @@ class ChatPanel(QWidget):
     def add_system_message(self, text: str) -> None:
         """添加一条系统提示消息（居中、深色背景，跟随消息列表滚动）"""
         # 系统消息通常很短，放宽宽度限制让它自适应，避免不必要的换行
-        bubble = BubbleWidget(text, is_user=False, max_width=self.width(), is_system=True)
+        bubble = BubbleWidget(text, is_user=False, max_width=self.width(), is_system=True,
+                              avatar_enabled=self._avatars_enabled)
 
         row = QWidget()
         row.setStyleSheet("background: transparent;")
@@ -474,7 +576,8 @@ class ChatPanel(QWidget):
 
     def add_message(self, text: str, is_user: bool = False) -> None:
         """添加一条消息气泡到面板"""
-        bubble = BubbleWidget(text, is_user, self._bubble_max_width)
+        bubble = BubbleWidget(text, is_user, self._bubble_max_width,
+                              avatar_enabled=self._avatars_enabled)
 
         row = QWidget()
         row.setStyleSheet("background: transparent;")
@@ -599,6 +702,11 @@ class ChatPanel(QWidget):
         # 透明化区域大小 = 超出 threshold 的部分，最大不超过 150px
         # 随着消息增多，fade_zone 从 0 慢慢增长到 150
         fade_zone = min(total_msg_h - threshold, _FADE_ZONE)
+        # 用户主动向上滚查看历史时逐步取消顶部淡化：否则滚到最顶时，
+        # 最旧那条按绝对 y 判定落在 0~150 区，会被 (bottom/150)² 淡到几乎
+        # 看不见，正好和「看历史」的目的相反。滚过 90px 后完全清晰。
+        relief = min(1.0, self._scroll_offset / 90.0)
+        effective_fade = fade_zone * (1.0 - relief)
 
         for row in self._message_widgets:
             bubble = self._find_bubble(row)
@@ -614,8 +722,8 @@ class ChatPanel(QWidget):
             # 顶部淡出：消息底部进入 0~150px 区域时渐变
             if bottom <= 0:
                 opacity = 0.0
-            elif bottom < fade_zone:
-                ratio = max(0.0, bottom / fade_zone)
+            elif effective_fade > 0 and bottom < effective_fade:
+                ratio = max(0.0, bottom / effective_fade)
                 opacity = ratio * ratio
             else:
                 opacity = 1.0
@@ -674,6 +782,28 @@ class ChatPanel(QWidget):
             total_h += th + self._msg_layout.spacing()
         return total_h
 
+    def set_bubble_avatars(self, enabled: bool) -> None:
+        """设置界面切换「气泡头像」时即时刷新所有已有消息。
+
+        先更新单一状态源（保证之后的新消息也遵循开关），再沿用手写布局的
+        规则重排已有消息，不引入第二个布局所有权（见踩坑 #6/#7/#14/#15）。
+        """
+        self._avatars_enabled = bool(enabled)
+        if not self._message_widgets:
+            return   # 无消息时只更新状态，不必扰动布局
+        for row in self._message_widgets:
+            bubble = self._find_bubble(row)
+            if bubble is None:
+                continue
+            bubble.set_avatar(enabled)
+            h = bubble.height()
+            row.setFixedHeight(h)
+            row.setProperty("_layout_height", h)
+        self._adjust_height()
+        self._relayout_messages()
+        self._update_opacity_by_position()
+        self.geometry_changed.emit()
+
     def _find_bubble(self, row: QWidget) -> BubbleWidget | None:
         """从消息行中查找气泡组件"""
         for child in row.findChildren(BubbleWidget):
@@ -718,8 +848,9 @@ class ChatPanel(QWidget):
         if total_h <= available_h:
             self._scroll_offset = 0
         else:
-            # 最旧消息可以滚动到屏幕底部，让用户完整看到历史
-            max_offset = total_h
+            # 让最旧消息刚好停在消息区顶部即可。旧实现用 max_offset = total_h，
+            # 再往上滚只会得到一片空白，且最新消息会被 clip_y 整行隐藏。
+            max_offset = max(0, total_h - available_h)
             self._scroll_offset = max(0, min(max_offset, self._scroll_offset))
 
     def _get_max_panel_height(self) -> int:

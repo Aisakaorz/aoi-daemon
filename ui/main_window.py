@@ -171,6 +171,9 @@ class MainWindow(QMainWindow):
         # 从配置恢复用户设置（覆盖默认值）
         self._apply_config()
 
+        # 所有组件与托盘都就位后，再统一应用特效开关
+        self.apply_all_effects()
+
         logger.info("MainWindow 初始化完成")
 
     # ---- 窗口属性 ----
@@ -222,6 +225,16 @@ class MainWindow(QMainWindow):
         # 窗口 resize 时重新调整聊天面板位置
         self.resizeEvent = self._on_resize
 
+        # C 版常驻氛围：飘落花瓣（自带按时段换色）+ 说话气泡层（待机自语 / 交互短句）
+        from ui.ambient_decor import AmbientDecor
+        self._ambient = AmbientDecor(central)
+        from ui.idle_chatter import IdleChatter
+        self._idle_chatter = IdleChatter(central)
+        # 萌系光标：小爱心指针由 apply_effect 按开关设置，这里是它的小拖尾层
+        from ui.cute_cursor import CursorTrail
+        self._cursor_trail = CursorTrail(central)
+        self._canvas.cursor_moved.connect(self._cursor_trail.on_cursor_moved)
+
         # VTuber 常驻装饰：LIVE 状态牌 + 点击爱心粒子层（均为鼠标穿透的叠加层）
         # 注意：self._character 在 __init__ 后半段才赋值，这里直接读档案，避免启动期 AttributeError
         from ui.vtuber_decor import LiveBadge, HeartBurst
@@ -229,7 +242,71 @@ class MainWindow(QMainWindow):
         self._live_badge = LiveBadge(current_character()["name"], central)
         self._heart_burst = HeartBurst(central)
         self._canvas.tapped.connect(self._heart_burst.burst)
+        self._canvas.tapped.connect(self._on_tapped)
         self._position_decor()
+
+    def apply_all_effects(self) -> None:
+        """启动时按配置统一应用所有特效开关（单一状态源，避免各组件各自读）"""
+        from ui.effect_settings import EFFECTS, is_enabled
+        for key, _label, _default in EFFECTS:
+            self.apply_effect(key, is_enabled(key))
+
+    def apply_effect(self, key: str, enabled: bool) -> None:
+        """设置界面切换某项特效时即时下发；新增特效只需在这里加一个分支"""
+        from ui.effect_settings import (
+            FX_PETALS, FX_HEART_BURST, FX_LIVE_BADGE, FX_BUBBLE_AVATAR,
+            FX_IDLE_CHATTER, FX_GREETING, FX_CUTE_CURSOR,
+        )
+        if key == FX_PETALS:
+            self._ambient.set_enabled(enabled)
+        elif key == FX_HEART_BURST:
+            self._heart_burst.set_enabled(enabled)
+        elif key == FX_LIVE_BADGE:
+            self._live_badge.set_enabled(enabled)
+        elif key == FX_BUBBLE_AVATAR:
+            self._chat.set_bubble_avatars(enabled)
+        elif key == FX_IDLE_CHATTER:
+            self._idle_chatter.set_enabled(enabled)
+        elif key == FX_GREETING:
+            self._heart_burst.set_greeting(enabled)
+        elif key == FX_CUTE_CURSOR:
+            self._cursor_trail.set_enabled(enabled)
+            from ui.cute_cursor import apply_cute_cursor, restore_cursor
+            for widget in (self, self._canvas):
+                if enabled:
+                    apply_cute_cursor(widget)
+                else:
+                    restore_cursor(widget)
+
+    def preview_effect(self, key: str) -> None:
+        """在设置里「重新打开」某项瞬时特效时立刻放一次，让用户当场看到效果。
+
+        只由设置窗口的开关回调调用；启动时的 apply_all_effects() 不调用，
+        避免和启动登场特效撞车。
+        """
+        from ui.effect_settings import FX_GREETING, FX_IDLE_CHATTER
+        if key == FX_GREETING:
+            self._play_greeting()
+        elif key == FX_IDLE_CHATTER:
+            self._idle_chatter.preview()
+
+    def _play_greeting(self) -> None:
+        """在角色中心放一次登场特效（模型就绪 / 开关重新打开共用）"""
+        from PySide6.QtCore import QPoint
+        if hasattr(self, "_heart_burst"):
+            self._heart_burst.greet(
+                QPoint(self.width() // 2, int(self.height() * 0.52))
+            )
+            # 环散开的同时让常驻花瓣从 0 淡入，登场结束正好是常态画面
+            if hasattr(self, "_ambient"):
+                self._ambient.fade_in(1800)
+
+    def _on_tapped(self, pos: QPoint) -> None:
+        """点击命中角色：重置待机计时，并冒一句摸头 / 点身体的小表情"""
+        self._idle_chatter.note_activity()
+        hy1 = self._character["head_rect"][3]
+        kind = "head" if pos.y() <= self.height() * hy1 else "body"
+        self._idle_chatter.show_emote(kind)
 
     def _apply_config(self) -> None:
         """从 config.json 恢复用户配置（角色大小、置顶、吸附、聊天、窗口位置）"""
@@ -292,11 +369,14 @@ class MainWindow(QMainWindow):
         )
 
     def _on_model_ready(self) -> None:
-        """Live2D 模型初始化完成后关闭启动画面"""
+        """Live2D 模型初始化完成后关闭启动画面，再放一次性登场特效"""
         if self._splash is not None:
             logger.info("模型加载完成，关闭启动画面")
             self._splash.request_close()
             self._splash = None
+        # 启动画面是独立子进程，request_close 之后还有短暂退场时间；
+        # 立刻放特效会被盖住看不见，等它退干净再登场。
+        QTimer.singleShot(420, self._play_greeting)
 
     def _setup_tray(self) -> None:
         """初始化系统托盘"""
@@ -593,11 +673,17 @@ class MainWindow(QMainWindow):
                 chat.raise_()
 
     def _position_decor(self) -> None:
-        """LIVE 牌水平居中、贴近角色头顶；粒子层覆盖整个窗口；两者都不参与布局"""
+        """LIVE 牌水平居中、贴近角色头顶；氛围层与粒子层覆盖整个窗口；均不参与布局"""
         # 顶部留白按窗口高度取比例（默认 600 高 → y≈30），比贴着窗口顶端更靠近角色；
         # 角色缩放导致窗口变高时，牌与角色的相对距离保持一致。
         badge_y = max(10, int(self.height() * 0.05))
         self._live_badge.move((self.width() - self._live_badge.width()) // 2, badge_y)
+        self._ambient.setGeometry(0, 0, self.width(), self.height())
+        self._ambient.stackUnder(self._chat)   # 氛围在角色之上、聊天/弹窗之下
+        self._idle_chatter.setGeometry(0, 0, self.width(), self.height())
+        self._idle_chatter.stackUnder(self._chat)
+        self._cursor_trail.setGeometry(0, 0, self.width(), self.height())
+        self._cursor_trail.stackUnder(self._chat)   # 拖尾不盖聊天框
         self._heart_burst.setGeometry(0, 0, self.width(), self.height())
         self._live_badge.raise_()
         self._heart_burst.raise_()
@@ -676,11 +762,17 @@ class MainWindow(QMainWindow):
     # ---- 槽函数 ----
 
     def _toggle_visibility(self) -> None:
-        """切换主窗口显示/隐藏"""
+        """切换主窗口显示/隐藏（隐藏时停掉常驻氛围动画，显示时无缝续上）"""
         if self.isVisible():
+            self._ambient.pause()
+            self._idle_chatter.pause()
+            self._cursor_trail.pause()
             self.hide()
         else:
             self.show()
+            self._ambient.start()
+            self._idle_chatter.resume()
+            self._cursor_trail.resume()
 
     def _update_menu_text(self) -> None:
         """菜单显示前更新动态文字（显示/隐藏、聊天开关），名字取自使魔档案"""
@@ -719,6 +811,8 @@ class MainWindow(QMainWindow):
     def _on_user_message(self, text: str) -> None:
         """用户发送消息后的处理（当前为本地占位回复流程）"""
         logger.info(f"用户消息: {text}")
+        self._idle_chatter.note_activity()
+        self._idle_chatter.show_emote("think")
         self._state.force_transit(CharacterState.THINKING)
         self._chat.show_typing_indicator()
         QTimer.singleShot(2000, lambda: self._do_ai_reply(text))
@@ -727,6 +821,7 @@ class MainWindow(QMainWindow):
         """执行 AI 回复（Phase 1 测试：直接 echo 用户消息）"""
         self._chat.hide_typing_indicator()
         self._chat.add_message(text, is_user=False)
+        self._idle_chatter.show_emote("reply")
         self._state.return_to_idle()
 
     def _toggle_topmost(self) -> None:

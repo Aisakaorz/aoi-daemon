@@ -83,16 +83,15 @@ def round_avatar_pixmap(size: int, dpr: float | None = None, ring: bool = True) 
 
 
 class LiveBadge(QWidget):
-    """常驻 LIVE 状态牌：奶油渐变卡片 + 无环圆形头像 + 独立在线点 + 萌体文字。
+    """常驻 LIVE 状态牌：奶油渐变卡片 + 无环圆形头像 + 呼吸在线点 + 萌体文字。
 
-    头像不再用带多层圆环的 AvatarBadge：圆形头像与卡片矩形边框贴得太近时，
-    两圈描边会视觉粘连。改成「无描边圆形裁切 + 淡粉柔影」把头像从卡片里
-    托出来，卡片边框与头像之间留出 3~10px 空隙；在线点单独画在右下角，
-    保留 LIVE 语义但不引入第二圈线。
+    在线点的呼吸是这块牌自带的显示效果（不再单列开关）：牌可见就呼吸，
+    关掉 LIVE 牌时定时器随 hideEvent 一起停，不空转。
     """
 
     _W, _H = 168, 44
     _AV, _AX, _AY = 26, 16, 9
+    _PULSE_MS = 110        # 呼吸很慢，低频重绘足够，避免挤占 16ms 粒子层
 
     def __init__(self, character_name: str = "葵酱", parent=None):
         super().__init__(parent)
@@ -101,6 +100,23 @@ class LiveBadge(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._name = character_name
         self._avatar = round_avatar_pixmap(self._AV, ring=False)
+        self._elapsed = QElapsedTimer()
+        self._elapsed.start()
+        self._pulse_timer = QTimer(self)
+        self._pulse_timer.setInterval(self._PULSE_MS)
+        self._pulse_timer.timeout.connect(self.update)
+
+    def set_enabled(self, enabled: bool) -> None:
+        """设置界面切换时即时显隐（不销毁，避免重建头像位图）；呼吸随之启停"""
+        self.setVisible(bool(enabled))
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._pulse_timer.start()
+
+    def hideEvent(self, event) -> None:
+        self._pulse_timer.stop()
+        super().hideEvent(event)
 
     def paintEvent(self, event) -> None:
         p = QPainter(self)
@@ -112,10 +128,21 @@ class LiveBadge(QWidget):
             p.setBrush(QColor(249, 184, 196, 55))
             p.drawEllipse(QRectF(self._AX - 2, self._AY - 2, self._AV + 4, self._AV + 4))
             p.drawPixmap(self._AX, self._AY, self._avatar)
-            # 在线点：绿点 + 白描边，独立于头像轮廓
+            # 在线点：绿点 + 白描边 + 2.4s 呼吸光晕，独立于头像轮廓。
+            # 呼吸是 LIVE 牌自带的显示效果，只改这个 8px 点的半径/亮度，
+            # 不碰全窗 HeartBurst 粒子层。
+            wave = 0.5 + 0.5 * math.sin(self._elapsed.elapsed() / 1000.0 * math.tau / 2.4)
+            r = 3.2 + 1.0 * wave
+            halo = QColor(QColor(ONLINE))
+            halo.setAlpha(int(50 + 45 * wave))
+            cx = self._AX + self._AV - 4
+            cy = self._AY + self._AV - 4
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(halo)
+            p.drawEllipse(QRectF(cx - r - 2, cy - r - 2, (r + 2) * 2, (r + 2) * 2))
             p.setBrush(QColor(ONLINE))
             p.setPen(QPen(QColor("#FFFFFF"), 1.6))
-            p.drawEllipse(QRectF(self._AX + self._AV - 7, self._AY + self._AV - 7, 8, 8))
+            p.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
         p.setFont(cute_font(11, QFont.Weight.Bold))
         p.setPen(QColor(ROSE))
         p.drawText(
@@ -160,6 +187,10 @@ class TypingDots(QWidget):
 
 
 _STAR: QPainterPath | None = None
+_GREET_PETAL: QPainterPath | None = None
+# 登场只留少量点缀色；主体花瓣直接取「飘落花瓣」的时段配色，
+# 让登场环与常驻花瓣是同一套颜色，过渡才自然。
+_GREET_ACCENTS = ("#FF8A80", "#F2668B", "#FFD98A", "#FFF3EE")
 
 
 def _star_path() -> QPainterPath:
@@ -180,9 +211,22 @@ def _star_path() -> QPainterPath:
     return _STAR
 
 
+def _greet_petal_path() -> QPainterPath:
+    """登场花瓣：上下尖、中部饱满的杏仁形，圆润无棱角（静态缓存）"""
+    global _GREET_PETAL
+    if _GREET_PETAL is None:
+        path = QPainterPath()
+        path.moveTo(0.0, -1.0)
+        path.cubicTo(0.78, -0.62, 0.70, 0.52, 0.0, 1.0)
+        path.cubicTo(-0.70, 0.52, -0.78, -0.62, 0.0, -1.0)
+        path.closeSubpath()
+        _GREET_PETAL = path
+    return _GREET_PETAL
+
+
 @dataclass
 class _Particle:
-    kind: str          # heart / star / dot
+    kind: str          # heart / star / dot / petal / puff
     x: float
     y: float
     size: float
@@ -194,6 +238,12 @@ class _Particle:
     swing: float       # 正弦横摆幅度
     phase: float
     spin: float        # 旋转角度（度）
+    from_greet: bool = False   # 登场粒子：关「点击爱心」时不该把它一起清掉
+    # 登场环：沿椭圆绕中心转动，位置由 orbit_a0 + t*转数 决定，不用 drift/rise
+    orbit: bool = False
+    orbit_a0: float = 0.0
+    orbit_rx: float = 0.0
+    orbit_ry: float = 0.0
 
 
 class HeartBurst(QWidget):
@@ -206,6 +256,9 @@ class HeartBurst(QWidget):
     _TIMER_MS = 16
     _FLASH_MS = 520
     _POP_MS = 1900          # 与粒子 life(1500~2000) 同步，避免主爱心先一步消失
+    _GREET_MS = 1600        # 登场柔光雾的持续时间（视觉主体是外圈旋转的粒子环）
+    _GREET_COUNT = 14       # 收敛到 14 颗，避免太绚烂；以花瓣为主衔接常驻花瓣
+    _GREET_TURN = math.tau * 0.55   # 转约 198° 就够，不再转满一大圈
     _COUNT_HEART, _COUNT_STAR, _COUNT_DOT = 5, 2, 2
     _PALETTE = ("#F2668B", "#FF8A80", "#FFB4AB", "#FFF3EE", "#FFD98A")
 
@@ -223,12 +276,35 @@ class HeartBurst(QWidget):
         self._particles: list[_Particle] = []
         self._flash: tuple[float, float, int] | None = None
         self._pop: tuple[float, float, int] | None = None
+        self._greet: tuple[float, float, int] | None = None
+        self._greet_center: tuple[float, float] = (0.0, 0.0)  # 外圈旋转中心
         self._dirty = QRect()   # 只需重绘点击点附近，省掉整窗透明层重绘
+        self._enabled = True         # 点击爱心开关，由 MainWindow.apply_effect() 下发
+        self._greet_enabled = True   # 登场特效开关（与点击爱心独立）
         self.hide()
 
+    def set_enabled(self, enabled: bool) -> None:
+        """点击爱心开关：仅影响点击触发，不影响登场特效"""
+        self._enabled = bool(enabled)
+
+    def set_greeting(self, enabled: bool) -> None:
+        """登场特效开关：关闭时把进行中的登场光环与登场粒子一起收干净"""
+        self._greet_enabled = bool(enabled)
+        if not enabled:
+            self._greet = None
+            self._particles = [i for i in self._particles if not i.from_greet]
+            if not self._particles and self._flash is None and self._pop is None:
+                self._dirty = QRect()
+                self._timer.stop()
+                self.hide()
+            self.update()
+
     @staticmethod
-    def _region_for(pos: QPoint) -> QRect:
-        """覆盖粒子飘散全程的局部区域（横向 ±150、上方 175、下方 70）"""
+    def _region_for(pos: QPoint, wide: bool = False) -> QRect:
+        """覆盖粒子飘散全程的局部区域；登场散得更开，用大一圈的脏区"""
+        if wide:
+            # 外圈 + 后段下落都要罩得住（下方多留 60px）
+            return QRect(pos.x() - 220, pos.y() - 240, 440, 440)
         return QRect(pos.x() - 150, pos.y() - 175, 300, 245)
 
     def _tick(self) -> None:
@@ -238,8 +314,78 @@ class HeartBurst(QWidget):
         else:
             self.update(self._dirty)
 
+    def greet(self, pos: QPoint) -> None:
+        """登场特效：外圈花瓣环绕着葵酱转半圈，然后像花瓣一样落下。
+
+        按「有点太过绚烂、要跟飘落花瓣衔接」的反馈收敛：
+        - 中心仍留白（角色自己就是中心），只有极淡柔光雾。
+        - 粒子 20 → 14 颗，旋转 306° → 198°，以**花瓣**为主、爱心只作点缀。
+        - 花瓣直接取常驻飘落花瓣的**当前时段配色**（同一个 current_palette），
+          环与常驻花瓣同色系；后段粒子缓缓下落淡出，同时氛围层淡入，
+          于是「登场 → 常态花瓣」是连续过渡，不会突然空掉。
+        """
+        if not self._greet_enabled:
+            return
+        if not self._elapsed.isValid():
+            self._elapsed.start()
+        now = self._elapsed.elapsed()
+        self._particles = [
+            item for item in self._particles if now - item.born < item.life
+        ]
+        # 与常驻花瓣同一套时段配色，登场和待机看起来是「同一场花瓣」
+        from ui.ambient_decor import current_palette
+        _name, petal_colors, _alpha_scale, _speed = current_palette()
+        kinds = ["petal"] * 6 + ["heart"] * 5 + ["puff"] * 2 + ["dot"] * 1
+        random.shuffle(kinds)
+        self._greet_center = (float(pos.x()), float(pos.y()))
+        for i, kind in enumerate(kinds):
+            if kind == "petal":
+                color = QColor(petal_colors[i % len(petal_colors)])
+                size = random.uniform(13.0, 18.0)
+            elif kind == "heart":
+                color = QColor(_GREET_ACCENTS[i % 2])
+                size = random.uniform(13.0, 18.0)
+            elif kind == "puff":
+                color = QColor(_GREET_ACCENTS[2])
+                size = random.uniform(9.0, 13.0)
+            else:
+                color = QColor(_GREET_ACCENTS[3])
+                size = random.uniform(5.0, 8.0)
+            a0 = -math.pi / 2 + (i / self._GREET_COUNT) * math.tau \
+                + random.uniform(-0.10, 0.10)
+            rx = random.uniform(96.0, 138.0)
+            ry = random.uniform(68.0, 104.0)
+            self._particles.append(_Particle(
+                kind=kind,
+                x=pos.x() + math.cos(a0) * rx,
+                y=pos.y() + math.sin(a0) * ry,
+                size=size,
+                color=color,
+                born=now + i * 28,
+                life=random.randint(2400, 3000),
+                drift=0.0,
+                rise=0.0,
+                swing=random.uniform(2.0, 6.0),
+                phase=random.uniform(0.0, math.tau),
+                spin=random.uniform(-20.0, 20.0),
+                from_greet=True,
+                orbit=True,
+                orbit_a0=a0,
+                orbit_rx=rx,
+                orbit_ry=ry,
+            ))
+        self._greet = (float(pos.x()), float(pos.y()), now)
+        region = self._region_for(pos, wide=True).intersected(self.rect())
+        self._dirty = region if self._dirty.isEmpty() else self._dirty.united(region)
+        self.show()
+        self.raise_()
+        if not self._timer.isActive():
+            self._timer.start()
+
     def burst(self, pos: QPoint) -> None:
         """在 canvas 局部坐标 pos 处生成一簇混合粒子 + 一圈点击闪光"""
+        if not self._enabled:
+            return
         if not self._elapsed.isValid():
             self._elapsed.start()
         now = self._elapsed.elapsed()
@@ -366,6 +512,44 @@ class HeartBurst(QWidget):
         p.restore()
         return True
 
+    def _paint_greeting(self, p: QPainter, now: int) -> bool:
+        """登场：中心不再画任何具象形状，只有几团极淡的暖光雾。
+
+        按审核反馈：中央那朵五瓣花「画得太明显太分明」，而且角色本来就在
+        窗口中心，叠个花反而挡住主角。现在把中心完全留给葵酱，视觉主体是
+        _paint_particle 里沿宽椭圆缓缓转一圈的外圈粒子。
+        QRadialGradient 一律 3 参数（中心 + 半径），边缘全透明无硬圆边。
+        """
+        if self._greet is None:
+            return False
+        x, y, born = self._greet
+        t = (now - born) / self._GREET_MS
+        if t < 0:
+            return True
+        if t >= 1:
+            self._greet = None
+            return False
+        fade = min(1.0, t / 0.12) * min(1.0, (1.0 - t) / 0.42)
+
+        p.save()
+        p.setOpacity(max(0.0, min(1.0, fade)))
+        # 范围比旧版更宽、亮度更淡，只提供「亮起来」的氛围，不抢角色
+        for i, (dx, dy, r0) in enumerate(((0.0, 0.0, 86.0),
+                                          (-46.0, 18.0, 60.0),
+                                          (42.0, -22.0, 56.0))):
+            r = r0 * (0.82 + 0.35 * (1.0 - (1.0 - t) ** 2))
+            ox = x + dx + math.sin(t * 1.4 + i) * 7.0
+            oy = y + dy + math.cos(t * 1.1 + i) * 6.0
+            glow = QRadialGradient(ox, oy, r)
+            glow.setColorAt(0.00, QColor(255, 248, 242, 50))
+            glow.setColorAt(0.50, QColor(255, 200, 216, 32))
+            glow.setColorAt(1.00, QColor(255, 200, 216, 0))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(glow)
+            p.drawEllipse(QRectF(ox - r, oy - r, r * 2, r * 2))
+        p.restore()
+        return True
+
     def _paint_particle(self, p: QPainter, item: _Particle, now: int) -> bool:
         """返回 False 表示生命结束、可从列表移除"""
         t = (now - item.born) / item.life
@@ -379,8 +563,20 @@ class HeartBurst(QWidget):
         pop *= 1.0 - 0.12 * max(0.0, (t - 0.8) / 0.2)
         fade = min(1.0, t / 0.07) * min(1.0, (1.0 - t) / 0.32)
         # 匀速上升（原来是先快后猛冲，观感太急），横摆频率同步放慢
-        px = item.x + item.drift * t + math.sin(t * 4.0 + item.phase) * item.swing
-        py = item.y - item.rise * t
+        if item.orbit:
+            # 登场外圈：沿宽椭圆绕中心缓缓转过去，整体轻微上浮，形成「绕一圈」
+            a = item.orbit_a0 + t * self._GREET_TURN
+            cx, cy = self._greet_center
+            px = cx + math.cos(a) * item.orbit_rx \
+                + math.sin(t * 4.0 + item.phase) * item.swing
+            py = cy + math.sin(a) * item.orbit_ry - 16.0 * t
+            # 后段像花瓣一样缓缓落下并淡出，正好接上淡入的常驻花瓣
+            fall = max(0.0, (t - 0.55) / 0.45)
+            py += 80.0 * fall * fall
+        else:
+            # 点击粒子：匀速上升 + 横摆
+            px = item.x + item.drift * t + math.sin(t * 4.0 + item.phase) * item.swing
+            py = item.y - item.rise * t
 
         p.save()
         p.setOpacity(max(0.0, min(1.0, fade)))
@@ -406,28 +602,59 @@ class HeartBurst(QWidget):
             p.setPen(QPen(QColor("#F2A6B8"), 0.08))
             p.drawPath(_star_path())
             p.restore()
+        elif item.kind == "petal":
+            # 登场专用：圆润杏仁花瓣 + 一点白高光，没有尖角
+            s = item.size * pop / 2.0
+            p.save()
+            p.scale(s, s)
+            p.setBrush(item.color)
+            p.setPen(QPen(QColor("#E0507A"), 0.085))
+            p.drawPath(_greet_petal_path())
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(255, 255, 255, 150))
+            p.drawEllipse(QRectF(-0.20, -0.48, 0.18, 0.13))
+            p.restore()
+        elif item.kind == "puff":
+            # 登场专用：圆润四瓣小星，尺寸小、只作一圈里的点缀（不是主体）
+            s = item.size * pop / 2.0
+            p.save()
+            p.scale(s, s)
+            p.setBrush(item.color)
+            p.setPen(QPen(QColor("#F2A6B8"), 0.055))
+            for dx, dy in ((0.0, -0.55), (0.55, 0.0), (0.0, 0.55), (-0.55, 0.0)):
+                p.drawEllipse(QRectF(dx - 0.36, dy - 0.36, 0.72, 0.72))
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(255, 255, 255, 215))
+            p.drawEllipse(QRectF(-0.20, -0.20, 0.40, 0.40))
+            p.restore()
         else:
             r = item.size * pop / 2.0
-            p.setPen(Qt.PenStyle.NoPen)
+            # 登场光点加一圈淡粉细描边，浅底上才立得住；点击粒子保持原样
+            if item.orbit:
+                p.setPen(QPen(QColor("#F2A6B8"), 0.8))
+            else:
+                p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(item.color)
             p.drawEllipse(QRectF(-r, -r, r * 2, r * 2))
+            p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(255, 255, 255, 210))
             p.drawEllipse(QRectF(-r * 0.45, -r * 0.50, r * 0.45, r * 0.45))
         p.restore()
         return True
 
     def paintEvent(self, event) -> None:
-        if not self._particles and self._flash is None and self._pop is None:
+        if not self._particles and self._flash is None and self._pop is None and self._greet is None:
             return
         now = self._elapsed.elapsed()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         flash_alive = self._paint_flash(p, now)
         pop_alive = self._paint_pop_heart(p, now)
+        greet_alive = self._paint_greeting(p, now)
         alive = [item for item in self._particles if self._paint_particle(p, item, now)]
         p.end()
         self._particles = alive
-        if not self._particles and not flash_alive and not pop_alive:
+        if not self._particles and not flash_alive and not pop_alive and not greet_alive:
             self._dirty = QRect()
             self._timer.stop()
             self.hide()

@@ -103,6 +103,17 @@ class ToggleSwitch(QWidget):
         self._timer.timeout.connect(self._tick)
         self._timer.start(33)
 
+    def initChecked(self, checked: bool) -> None:
+        """构造时直接落到最终状态：不发信号、不产生滑块入场动画。
+
+        第一次打开设置时开关第一帧就应该是真实状态，而不是从「关」滑到
+        「开」（外观段两个开关之前只在 showEvent 里首次 setChecked，于是
+        那次动画被用户看见了）。
+        """
+        self._checked = bool(checked)
+        self._pos = self._target = 1.0 if self._checked else 0.0
+        self.update()
+
     def setChecked(self, checked: bool) -> None:
         checked = bool(checked)
         if self._checked == checked:
@@ -218,7 +229,7 @@ class SettingsDialog(QWidget):
         # Qt.Window：独立顶层窗口，避免 macOS 上父窗口为 Tool 的弹窗焦点坑
         super().__init__(main_window, Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
         self._mw = main_window
-        self.setFixedSize(340, 420)
+        self.setFixedSize(340, 586)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         # 主窗口是 Qt.Tool 窗口，不计入 Qt 的「最后一个窗口」判定；
         # 本窗口若参与该判定，点 ✕ / Esc 关闭时会触发 QApplication 自动退出。
@@ -277,6 +288,14 @@ class SettingsDialog(QWidget):
         layout.addLayout(self._build_switch_row("窗口置顶", "top"))
         layout.addSpacing(8)
         layout.addLayout(self._build_switch_row("任务栏吸附", "snap"))
+        layout.addSpacing(10)
+        layout.addWidget(self._make_separator())
+        layout.addSpacing(6)
+
+        # ---- ✦ 特效（每项独立开关，切换即时生效） ----
+        layout.addWidget(_SectionTitle("✦ 特效"))
+        layout.addSpacing(8)
+        self._build_effect_rows(layout)
         layout.addSpacing(10)
         layout.addWidget(self._make_separator())
         layout.addSpacing(6)
@@ -361,12 +380,64 @@ class SettingsDialog(QWidget):
         row.addStretch(1)
         switch = ToggleSwitch()
         if key == "top":
+            switch.initChecked(self._mw._action_top.isChecked())
             switch.toggled.connect(self._on_top_toggled)
         else:
+            switch.initChecked(self._mw._action_snap.isChecked())
             switch.toggled.connect(self._on_snap_toggled)
         setattr(self, f"_switch_{key}", switch)
         row.addWidget(switch)
         return row
+
+    def _build_effect_rows(self, layout: QVBoxLayout) -> None:
+        """特效开关：固定网格两列，保证同一列的胶囊严格垂直对齐。
+
+        之前用「每行两个 QHBoxLayout + addStretch」会把开关推到格子最右端，
+        结果组内文字↔开关很远、左组开关却贴着右组文字。改成 QGridLayout
+        固定 4 列（文字 | 开关 | 组间距 | 文字 | 开关），组内紧挨、组间留白。
+        """
+        from ui.effect_settings import EFFECTS, is_enabled
+        from PySide6.QtWidgets import QGridLayout
+        self._effect_switches: dict[str, ToggleSwitch] = {}
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(18)     # 两组之间的明确间隔
+        grid.setVerticalSpacing(10)
+        grid.setColumnStretch(0, 1)       # 两列严格等宽
+        grid.setColumnStretch(1, 1)
+
+        for i, (key, label, _default) in enumerate(EFFECTS):
+            row, col = divmod(i, 2)
+            text = QLabel(label)
+            text.setFont(cute_font(9))
+            text.setStyleSheet("color: #4A3F3A; background: transparent; border: none;")
+            text.setFixedWidth(62)        # 文字等宽 → 同列开关起点一致
+            text.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            switch = ToggleSwitch()
+            switch.initChecked(is_enabled(key))
+            switch.toggled.connect(
+                lambda checked, k=key: self._on_effect_toggled(k, checked)
+            )
+            self._effect_switches[key] = switch
+            # 文字与开关紧挨（8px），整组靠列首，不用 stretch 推到格尾
+            group = QHBoxLayout()
+            group.setContentsMargins(0, 0, 0, 0)
+            group.setSpacing(8)
+            group.addWidget(text)
+            group.addWidget(switch)
+            group.addStretch(1)
+            grid.addLayout(group, row, col)
+        layout.addLayout(grid)
+
+    def _on_effect_toggled(self, key: str, checked: bool) -> None:
+        """写入配置并即时应用到主窗口（不重启、不重建窗口）"""
+        from ui.effect_settings import set_enabled
+        set_enabled(key, checked)
+        self._mw.apply_effect(key, checked)
+        # 瞬时类特效重新打开时立刻放一次，让用户当场确认效果
+        # （启动时 apply_all_effects 不走这条路径，不会与登场特效撞车）
+        if checked and hasattr(self._mw, "preview_effect"):
+            self._mw.preview_effect(key)
 
     def _build_model_block(self, layout: QVBoxLayout) -> None:
         # 第一行：名称 + 状态
@@ -431,6 +502,10 @@ class SettingsDialog(QWidget):
             btn.setChecked(abs(s - scale) < 0.01)
         self._switch_top.setChecked(mw._action_top.isChecked())
         self._switch_snap.setChecked(mw._action_snap.isChecked())
+        # 特效开关每次打开设置都与配置对齐（setChecked 不 emit toggled，不会误写盘）
+        from ui.effect_settings import is_enabled
+        for key, switch in self._effect_switches.items():
+            switch.setChecked(is_enabled(key))
         self._refresh_model_state()
 
     def _refresh_model_state(self) -> None:

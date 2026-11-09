@@ -42,7 +42,8 @@ class TrayIcon(QObject):
         if path:
             icon = QIcon(path)
             if not icon.isNull():
-                # 右下角在线点（复用头像徽章的绿点配色），表达「使魔在线」
+                # 右下角常驻在线点（复用头像徽章的绿点配色），表达「使魔在线」。
+                # 这是固定状态而非可关特效，不进设置开关。
                 pm = icon.pixmap(32, 32)
                 if not pm.isNull():
                     p = QPainter(pm)

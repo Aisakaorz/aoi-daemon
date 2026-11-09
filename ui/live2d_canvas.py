@@ -87,6 +87,8 @@ class Live2DCanvas(QOpenGLWidget):
     # 模型初始化完成信号（用于关闭启动画面）
     model_ready = Signal()
     tapped = Signal(QPoint)  # 点击命中角色时发出 canvas 局部坐标，供爱心粒子使用
+    # 鼠标在窗口内移动（复用已有的 30ms 检测，不新增定时器）：供萌系光标拖尾使用
+    cursor_moved = Signal(QPoint)
     # 加载进度信号（0~100，用于更新启动画面进度条）
     loading_progress = Signal(int)
 
@@ -132,6 +134,7 @@ class Live2DCanvas(QOpenGLWidget):
 
         # 鼠标是否悬停在模型上（用于 Windows 鼠标穿透）
         self._mouse_over_model = False
+        self._last_cursor = QPoint(-9999, -9999)   # 拖尾节流用的上次位置
 
         # 绑定状态机回调
         self._state.motion_callback = self._on_state_motion
@@ -665,6 +668,12 @@ class Live2DCanvas(QOpenGLWidget):
         head_hit = (hx0 * w <= x <= hx1 * w and hy0 * h <= y <= hy1 * h)
         body_hit = (bx0 * w <= x <= bx1 * w and by0 * h <= y <= by1 * h)
         self._mouse_over_model = head_hit or body_hit
+
+        # 顺带把鼠标位置发给萌系光标拖尾（复用本 30ms 检测，不新增定时器）
+        cur = QPoint(int(x), int(y))
+        if (cur - self._last_cursor).manhattanLength() > 6:
+            self._last_cursor = cur
+            self.cursor_moved.emit(cur)
 
     def _do_hit_test(self, x: float, y: float) -> None:
         """
