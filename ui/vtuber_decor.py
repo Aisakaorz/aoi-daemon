@@ -15,14 +15,14 @@ from dataclasses import dataclass
 from PySide6.QtCore import Qt, QRect, QRectF, QElapsedTimer, QTimer, QPoint
 from PySide6.QtGui import (
     QColor, QFont, QGuiApplication, QPainter, QPainterPath, QPen, QPixmap,
-    QRadialGradient,
+    QLinearGradient, QRadialGradient,
 )
 from PySide6.QtWidgets import QWidget
 
 from ui.avatar import load_app_icon_pixmap
 from ui.card_paint import paint_cute_card
 from ui.splash_screen import heart_path
-from ui.theme import BLUSH, ONLINE, ROSE
+from ui.theme import BLUSH, ONLINE, ROSE, TEXT_MUTED
 from utils.font_manager import cute_font
 
 _AVATAR_CACHE: dict[tuple[int, float, bool], QPixmap] = {}
@@ -150,6 +150,186 @@ class LiveBadge(QWidget):
             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
             f"LIVE · {self._name}",
         )
+        p.end()
+
+
+# 好感度牌的三档配色：只管小爱心与进度条的渐变深浅，
+# 数值统一用 LIVE 牌文字同款 ROSE，避免三档越到后面颜色越深、显得过重
+_TIER_COLORS = {
+    "shy": ("#FFD9D4", "#FFB4AB"),
+    "warm": ("#FFC9C2", "#FF8A80"),
+    "close": ("#FFB4AB", "#F2668B"),
+}
+# 好感满值：暖金渐变作为里程碑，数值回落时会自动变回粉色
+_BOND_COLORS = ("#FFE9B0", "#F2B03C")
+
+
+class AffectionMeter(QWidget):
+    """LIVE 牌右侧的好感度小牌：小爱心 + 数值 + 迷你进度条。
+
+    按审核反馈把原本隐藏的好感值显示出来，归「LIVE 牌」这个开关管
+    （关 LIVE 牌时一起隐藏）。数值增长时小爱心弹一下、进度条平滑追上、
+    冒一个小小的 +N；按小时回落时则显示柔和的 -N、不弹爱心，进度条平滑退下。
+    520ms 后停表 —— 只在变化时活动，不新增常驻定时器。
+    """
+
+    _W, _H = 96, 44
+    _POP_MS = 520
+    _TICK_MS = 33
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(self._W, self._H)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._value = 0
+        self._shown = 0.0
+        self._from = 0.0
+        self._tier = "shy"
+        self._gain = 0
+        self._pop_active = False
+        self._pop = QElapsedTimer()
+        self._pop.start()
+        self._timer = QTimer(self)
+        self._timer.setInterval(self._TICK_MS)
+        self._timer.timeout.connect(self._tick)
+
+    def set_enabled(self, enabled: bool) -> None:
+        """随 LIVE 牌开关显隐（不销毁，保留当前数值）"""
+        self.setVisible(bool(enabled))
+
+    def hideEvent(self, event) -> None:
+        self._timer.stop()
+        self._pop_active = False
+        super().hideEvent(event)
+
+    def set_value(self, value: int, animate: bool = True,
+                  tier: str | None = None) -> None:
+        """由 core.companion 下发；animate=False 用于启动恢复，不放入场动画。
+
+        涨值显示 +N 并弹一下爱心，回落显示 -N（柔和灰粉、不弹爱心），
+        两种方向都让进度条平滑追上新值，520ms 后停表。
+        """
+        if tier in _TIER_COLORS:
+            self._tier = tier
+        v = max(0, min(100, int(value)))
+        if v == self._value:
+            self.update()
+            return
+        self._gain = v - self._value
+        self._value = v
+        if animate and self.isVisible():
+            self._from = self._shown
+            self._pop.restart()
+            self._pop_active = True
+            if not self._timer.isActive():
+                self._timer.start()
+        else:
+            self._shown = float(v)
+            self._pop_active = False
+            self._timer.stop()
+        self.update()
+
+    def _tick(self) -> None:
+        """墙钟驱动：进度条缓出追上新值，动画结束即停表"""
+        t = min(1.0, self._pop.elapsed() / self._POP_MS)
+        ease = 1.0 - (1.0 - t) ** 2
+        self._shown = self._from + (self._value - self._from) * ease
+        if t >= 1.0:
+            self._shown = float(self._value)
+            self._pop_active = False
+            self._timer.stop()
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        paint_cute_card(p, self.width(), self.height(), 14, 6)
+        # 满值是里程碑：整块渐变换成暖金，回落一格就变回粉色，数值因此始终有起伏
+        bond = self._value >= 100
+        c0, c1 = (QColor(x) for x in
+                  (_BOND_COLORS if bond else _TIER_COLORS[self._tier]))
+        value_color = QColor(ROSE)   # 与左侧「LIVE · 葵酱」同色，不再随档位加深
+        t = min(1.0, self._pop.elapsed() / self._POP_MS) if self._pop_active else 1.0
+        # 只有涨值才弹爱心；回落时爱心保持原大小，避免「掉分还庆祝」
+        pop = (math.sin(math.pi * t)
+               if (self._pop_active and self._gain > 0) else 0.0)
+
+        # 小爱心：整体右移留足左边距，档位越高略大，涨好感时弹一下
+        p.save()
+        p.translate(20.0, 17.0)
+        tier_bonus = 0.0 if self._tier == "shy" else (0.3 if self._tier == "warm" else 0.6)
+        s = (4.6 + tier_bonus) * (1.0 + 0.32 * pop)
+        p.scale(s, s)
+        p.translate(0, -0.91)
+        g = QLinearGradient(0.0, 0.0, 0.0, 1.82)
+        g.setColorAt(0.0, c0)
+        g.setColorAt(1.0, c1)
+        # 与光标 / 图标同一套画法：白色外描边让浅色档也立得住轮廓，
+        # 深玫红细描边 + 渐变填充 + 一点白高光，比纯色小爱心更精致
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(QColor("#FFFFFF"), 0.22))
+        p.drawPath(heart_path())
+        p.setBrush(g)
+        p.setPen(QPen(QColor("#E0507A"), 0.10))
+        p.drawPath(heart_path())
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(255, 255, 255, 210))
+        p.drawEllipse(QRectF(-0.44, -0.42, 0.18, 0.14))
+        p.restore()
+
+        # 标签位平时写「好感」，变化的 520ms 里临时变成 +N / -N。
+        # 数值紧跟标签左对齐（不再贴到卡片最右），中间不留大片空白、右侧也有边距。
+        gaining = self._pop_active and self._gain > 0
+        cooling = self._pop_active and self._gain < 0
+        hint = (f"+{self._gain}" if gaining
+                else (f"-{abs(self._gain)}" if cooling else "好感"))
+        p.setFont(cute_font(8, QFont.Weight.Bold if (gaining or cooling)
+                            else QFont.Weight.Normal))
+        p.setPen(value_color if gaining else
+                 (QColor("#B08A82") if cooling else QColor(TEXT_MUTED)))
+        p.drawText(QRectF(30, 8, 26, 20),
+                   Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                   hint)
+        p.setFont(cute_font(10, QFont.Weight.Bold))
+        p.setPen(value_color)
+        p.drawText(QRectF(52, 7, 34, 22),
+                   Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                   str(self._value))
+
+        # 迷你进度条：左右各留 14px，与上方内容对齐
+        bar = QRectF(14.0, 29.0, 68.0, 5.0)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#FFE6E2"))
+        p.drawRoundedRect(bar, 2.5, 2.5)
+        fw = min(bar.width(), max(0.0, bar.width() * self._shown / 100.0))
+        if fw > 0.5:
+            fill = QRectF(bar.x(), bar.y(), fw, bar.height())
+            bg = QLinearGradient(bar.left(), 0.0, bar.right(), 0.0)
+            bg.setColorAt(0.0, c0)
+            bg.setColorAt(1.0, c1)
+            p.setBrush(bg)
+            p.drawRoundedRect(fill, 2.5, 2.5)
+            if bond:
+                # 满值时进度条末端是一颗小四角星，而不是普通白色高光点
+                cx, cy = fill.right() - 2.0, bar.y() + bar.height() / 2
+                star = QPainterPath()
+                for i in range(8):
+                    r = 3.0 if i % 2 == 0 else 1.0
+                    a = -math.pi / 2 + i * math.pi / 4
+                    sx, sy = cx + r * math.cos(a), cy + r * math.sin(a)
+                    if i == 0:
+                        star.moveTo(sx, sy)
+                    else:
+                        star.lineTo(sx, sy)
+                star.closeSubpath()
+                p.setBrush(QColor("#FFF6E0"))
+                p.setPen(QPen(QColor("#E8A63C"), 0.5))
+                p.drawPath(star)
+            else:
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(QColor(255, 255, 255, 230))
+                p.drawEllipse(QRectF(fill.right() - 2.4, bar.y() + 0.9, 3.2, 3.2))
         p.end()
 
 

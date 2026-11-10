@@ -7,9 +7,11 @@
 
 - 待机自语：空闲一会儿后冒一句随机短句，像 VTuber 待机时自言自语。
   24 句语句池 + 洗牌队列（一轮不重复、跨轮首句≠上轮末句），显示 4.2s。
+  好感档位越高，越容易抽到「亲近」类句子（core/companion.py 提供档位）。
 - 交互短句：摸头 / 点身体 / 思考 / 回复时冒一句更短的口语反馈，
   5 类各 5 句，显示 2.0s，气泡更靠上、描边稍重，由主窗口事件触发
   （不改动 StateMachine 已有的状态回调）。
+- 久别问候：启动时由 say() 指定文案说一句，同样受总开关控制。
 
 要点：
 - 两者本质是同一件事「葵酱说句话」，合并为**一个开关**；开关重新打开时
@@ -39,6 +41,19 @@ _LINES = (
     "我在练习新的打招呼方式", "阳光晒得暖暖的", "悄悄许了个小愿望",
     "要不要聊点什么？", "我把花瓣数到第七片了", "嗯…就这样待着也很好",
     "啊，刚刚走神了一秒", "今天的直播间也很安静", "等你回来再说给你听~",
+)
+
+# 好感高了才会渐渐出现的「亲近」句：不新增界面，只让语句池慢慢变
+_CLOSE_LINES = (
+    "今天也一直陪着我呀", "你回来我就安心了", "和你待着最舒服了~",
+    "不用说点什么也很好呢", "明天的直播间也给你留位置", "嘿嘿，越来越熟悉啦",
+    "又一起过了一天呢", "这种安静的下午真好",
+)
+
+# 好感满值后解锁的专属句：满值不是终点，仍有新的话可说
+_MAX_LINES = (
+    "今天也最喜欢你了", "以后也要一直在一起哦",
+    "你是我最安心的角落", "这份心情我记了好久好久",
 )
 
 # 交互短句：短、口语、带语气，避免和待机自语句式重复
@@ -73,6 +88,8 @@ class IdleChatter(QWidget):
         self._text = ""
         self._visible = False
         self._mode = "idle"          # idle / emote
+        self._tier = "shy"           # shy / warm / close（由 core.companion 下发）
+        self._max = False            # 好感满值，解锁专属语句池
         self._show_seconds = _SHOW_SECONDS
         self._side = 1               # 气泡在角色左侧 / 右侧交替
         self._queue: list[str] = []
@@ -129,10 +146,40 @@ class IdleChatter(QWidget):
 
     # ---- 语句抽取与即时预览 ----
 
+    def set_tier(self, tier: str) -> None:
+        """由陪伴记忆下发好感档位，只影响之后抽取的语句池"""
+        if tier in ("shy", "warm", "close"):
+            self._tier = tier
+            self._queue.clear()   # 换档后重建池，让新句子有机会立刻出现
+
+    def set_max(self, reached: bool) -> None:
+        """由 core.companion.is_max() 下发；满值时混入专属语句池"""
+        reached = bool(reached)
+        if reached != self._max:
+            self._max = reached
+            self._queue.clear()
+
+    def say(self, text: str, seconds: float = _SHOW_SECONDS) -> None:
+        """外部指定文案说一句（久别问候等），同样受「说话气泡」总开关控制"""
+        if not self._enabled or not text:
+            return
+        self._present(text, "idle", seconds)
+
+    def _line_pool(self) -> list[str]:
+        """通用句 + 按档位混入的亲近句；亲近句重复几次即提高权重"""
+        pool = list(_LINES)
+        if self._tier == "warm":
+            pool += list(_CLOSE_LINES[:3])
+        elif self._tier == "close":
+            pool += list(_CLOSE_LINES) + list(_CLOSE_LINES[:4])
+        if self._max:
+            pool += list(_MAX_LINES)
+        return pool
+
     def _next_line(self) -> str:
         """洗牌队列：一轮内不重复，且新一轮首句不与上一轮末句相同"""
         if not self._queue:
-            pool = list(_LINES)
+            pool = self._line_pool()
             if self._last_line in pool:
                 pool.remove(self._last_line)
             random.shuffle(pool)

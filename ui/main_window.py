@@ -6,6 +6,7 @@
 """
 import os
 import sys
+import time
 import ctypes
 from ctypes import wintypes
 from typing import Optional
@@ -21,11 +22,15 @@ from ui.chat_panel import ChatPanel
 from ui.tray_icon import TrayIcon
 from l2d.model_wrapper import Live2DModelWrapper
 from core.state_machine import StateMachine, CharacterState
+from core import companion as comp
 from core.file_manager import FileManager
 from utils.logger import get_logger
 from utils.font_manager import cute_font
 
 logger = get_logger(__name__)
+
+# 挂机回落检查间隔（秒）：复用 Live2D 已有的渲染帧，不新增常驻定时器
+_DECAY_CHECK_INTERVAL = 60.0
 
 # 默认窗口尺寸
 _DEFAULT_WIDTH = 400
@@ -174,6 +179,16 @@ class MainWindow(QMainWindow):
         # 所有组件与托盘都就位后，再统一应用特效开关
         self.apply_all_effects()
 
+        # v0.1.32 陪伴记忆：启动时结算久别问候与好感档位（纯本地独立存档）
+        self._return_greeting = comp.note_session_start()
+        # 好感值改为可见：启动恢复时用 animate=False，不放「涨数值」入场动画
+        self._sync_affection(animate=False)
+
+        # 挂机时也要按小时回落：复用 Live2D 已有的 16ms 渲染循环做低频检查，
+        # 不新增常驻定时器；首帧即检查一次，等价于「打开应用时先验证一次」。
+        self._last_decay_check = time.monotonic() - _DECAY_CHECK_INTERVAL
+        self._canvas._timer.timeout.connect(self._check_affection_decay)
+
         logger.info("MainWindow 初始化完成")
 
     # ---- 窗口属性 ----
@@ -237,9 +252,11 @@ class MainWindow(QMainWindow):
 
         # VTuber 常驻装饰：LIVE 状态牌 + 点击爱心粒子层（均为鼠标穿透的叠加层）
         # 注意：self._character 在 __init__ 后半段才赋值，这里直接读档案，避免启动期 AttributeError
-        from ui.vtuber_decor import LiveBadge, HeartBurst
+        from ui.vtuber_decor import LiveBadge, HeartBurst, AffectionMeter
         from core.character import current_character
         self._live_badge = LiveBadge(current_character()["name"], central)
+        # 好感度小牌紧贴在 LIVE 牌右侧，归同一个开关管
+        self._affection_meter = AffectionMeter(central)
         self._heart_burst = HeartBurst(central)
         self._canvas.tapped.connect(self._heart_burst.burst)
         self._canvas.tapped.connect(self._on_tapped)
@@ -263,6 +280,7 @@ class MainWindow(QMainWindow):
             self._heart_burst.set_enabled(enabled)
         elif key == FX_LIVE_BADGE:
             self._live_badge.set_enabled(enabled)
+            self._affection_meter.set_enabled(enabled)
         elif key == FX_BUBBLE_AVATAR:
             self._chat.set_bubble_avatars(enabled)
         elif key == FX_IDLE_CHATTER:
@@ -301,12 +319,42 @@ class MainWindow(QMainWindow):
             if hasattr(self, "_ambient"):
                 self._ambient.fade_in(1800)
 
+    # ---- 陪伴记忆（好感度） ----
+
+    def _sync_affection(self, animate: bool = True) -> None:
+        """把 core.companion 的最新状态下发到说话气泡与好感牌。
+
+        启动恢复、真实互动、挂机期间的跨小时结算共用这一处，
+        避免三处各写一遍导致档位 / 满值状态漏更新。
+        """
+        self._idle_chatter.set_tier(comp.tier())
+        self._idle_chatter.set_max(comp.is_max())
+        self._affection_meter.set_value(
+            comp.affection(), animate=animate, tier=comp.tier())
+
+    def _check_affection_decay(self) -> None:
+        """挂在 Live2D 已有的 16ms 渲染循环上，每 60 秒才真正结算一次。
+
+        应用一直开着、不互动也不重启时，好感值仍会按小时回落，
+        满值不会一直停在 100；每次回调只有一次浮点比较，
+        有变化时才更新界面与落盘，不新增常驻定时器。
+        """
+        now = time.monotonic()
+        if now - self._last_decay_check < _DECAY_CHECK_INTERVAL:
+            return
+        self._last_decay_check = now
+        if comp.settle_if_due() > 0:
+            self._sync_affection()
+
     def _on_tapped(self, pos: QPoint) -> None:
         """点击命中角色：重置待机计时，并冒一句摸头 / 点身体的小表情"""
         self._idle_chatter.note_activity()
         hy1 = self._character["head_rect"][3]
         kind = "head" if pos.y() <= self.height() * hy1 else "body"
         self._idle_chatter.show_emote(kind)
+        # 摸头 / 点身体加一点好感，3 秒冷却避免连点刷数值
+        comp.add_affection(1, "tap", cooldown=3.0)
+        self._sync_affection()
 
     def _apply_config(self) -> None:
         """从 config.json 恢复用户配置（角色大小、置顶、吸附、聊天、窗口位置）"""
@@ -377,6 +425,15 @@ class MainWindow(QMainWindow):
         # 启动画面是独立子进程，request_close 之后还有短暂退场时间；
         # 立刻放特效会被盖住看不见，等它退干净再登场。
         QTimer.singleShot(420, self._play_greeting)
+        # 登场特效散去后再说一句久别问候，避免两层动画抢画面
+        if getattr(self, "_return_greeting", None):
+            QTimer.singleShot(2600, self._play_return_greeting)
+
+    def _play_return_greeting(self) -> None:
+        """登场之后冒一句久别问候；说话气泡被关掉时静默跳过"""
+        info = getattr(self, "_return_greeting", None)
+        if info and info.get("text"):
+            self._idle_chatter.say(info["text"])
 
     def _setup_tray(self) -> None:
         """初始化系统托盘"""
@@ -677,7 +734,17 @@ class MainWindow(QMainWindow):
         # 顶部留白按窗口高度取比例（默认 600 高 → y≈30），比贴着窗口顶端更靠近角色；
         # 角色缩放导致窗口变高时，牌与角色的相对距离保持一致。
         badge_y = max(10, int(self.height() * 0.05))
-        self._live_badge.move((self.width() - self._live_badge.width()) // 2, badge_y)
+        gap = 6
+        # LIVE 牌保持在窗口正中（主角不因右侧挂件而偏左），好感牌紧贴其右
+        live_x = (self.width() - self._live_badge.width()) // 2
+        meter_x = live_x + self._live_badge.width() + gap
+        # 窗口过窄时退回「两牌整组居中」，避免好感牌被挤出屏幕
+        if meter_x + self._affection_meter.width() > self.width() - 6:
+            total = self._live_badge.width() + gap + self._affection_meter.width()
+            live_x = max(6, (self.width() - total) // 2)
+            meter_x = live_x + self._live_badge.width() + gap
+        self._live_badge.move(live_x, badge_y)
+        self._affection_meter.move(meter_x, badge_y)
         self._ambient.setGeometry(0, 0, self.width(), self.height())
         self._ambient.stackUnder(self._chat)   # 氛围在角色之上、聊天/弹窗之下
         self._idle_chatter.setGeometry(0, 0, self.width(), self.height())
@@ -686,6 +753,7 @@ class MainWindow(QMainWindow):
         self._cursor_trail.stackUnder(self._chat)   # 拖尾不盖聊天框
         self._heart_burst.setGeometry(0, 0, self.width(), self.height())
         self._live_badge.raise_()
+        self._affection_meter.raise_()
         self._heart_burst.raise_()
 
     def _on_resize(self, event) -> None:
@@ -813,6 +881,9 @@ class MainWindow(QMainWindow):
         logger.info(f"用户消息: {text}")
         self._idle_chatter.note_activity()
         self._idle_chatter.show_emote("think")
+        # 发消息也加 30 秒冷却，避免连发消息把好感刷满
+        comp.add_affection(1, "chat", cooldown=30.0)
+        self._sync_affection()
         self._state.force_transit(CharacterState.THINKING)
         self._chat.show_typing_indicator()
         QTimer.singleShot(2000, lambda: self._do_ai_reply(text))
