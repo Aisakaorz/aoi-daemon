@@ -255,16 +255,25 @@ class IdleChatter(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setOpacity(alpha)
 
-        # 小尾巴（指向角色）
+        # 微信式侧边小尾巴：朝向角色的一侧（_side=1 气泡在右 → 尾巴在左）。
+        # 与主体做布尔并集后一次绘制，填充与描边共用同一条外轮廓，
+        # 不会出现底部三角与圆角矩形两层叠加时描边横穿接缝的拼接感。
+        tw, th = 6.0, 9.0
+        ty = rect.top() + 8.0
+        tip_y = ty + th * 0.38
         tail = QPainterPath()
-        tip_x = rect.center().x() - self._side * rect.width() * 0.28
-        tail.moveTo(tip_x - 5, rect.bottom() - 1)
-        tail.lineTo(tip_x + 5, rect.bottom() - 1)
-        tail.lineTo(tip_x, rect.bottom() + 7)
+        if self._side > 0:
+            tail.moveTo(rect.left() + 1.5, ty)
+            tail.lineTo(rect.left() - tw, tip_y)
+            tail.lineTo(rect.left() + 1.5, ty + th)
+        else:
+            tail.moveTo(rect.right() - 1.5, ty)
+            tail.lineTo(rect.right() + tw, tip_y)
+            tail.lineTo(rect.right() - 1.5, ty + th)
         tail.closeSubpath()
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor("#FFF0EA"))
-        p.drawPath(tail)
+        shape = QPainterPath()
+        shape.addRoundedRect(rect, 12, 12)
+        shape = shape.united(tail)
 
         # 奶油渐变圆角气泡 + 珊瑚粉细描边（交互短句描边稍重，区分两种短句）
         grad = QLinearGradient(0, rect.top(), 0, rect.bottom())
@@ -272,7 +281,7 @@ class IdleChatter(QWidget):
         grad.setColorAt(1.0, QColor("#FFE6E2" if emote else "#FFF0EA"))
         p.setBrush(grad)
         p.setPen(QPen(QColor(242, 102, 139, 175 if emote else 130), 1.4 if emote else 1.2))
-        p.drawRoundedRect(rect, 12, 12)
+        p.drawPath(shape)
 
         p.setFont(cute_font(9))
         p.setPen(QColor("#8A5A55"))

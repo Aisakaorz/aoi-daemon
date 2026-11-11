@@ -65,6 +65,9 @@ class BubbleWidget(QWidget):
     def __init__(self, text: str, is_user: bool, max_width: int, is_system: bool = False,
                  avatar_enabled: bool | None = None, parent=None):
         super().__init__(parent)
+        # 气泡外侧留白（头像、侧边尾巴）必须真正透明：否则 QWidget 会用
+        # 不透明的窗口底色填满整个矩形，头像圆形的下缘看起来像被削平。
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self._is_user = is_user
         self._is_system = is_system
         self._fade_opacity = 0.0
@@ -76,16 +79,24 @@ class BubbleWidget(QWidget):
         self._pad_h = 10
         self._pad_v = 8
         self._radius = 12
-        # 非系统气泡底部留尾巴空间（galgame 气泡小尾巴）
-        self._tail_extra = 8 if not is_system else 0
-        # 使魔消息在气泡内左侧带小头像：随气泡一起淡出，不额外占用 row 布局。
+        # 侧边小尾巴（微信式）：与主体合成同一条轮廓、同一条描边，
+        # 不再在底部叠一个无描边三角形（底边描边会横穿接缝，像两个零件）。
+        # 系统提示气泡不画尾巴。
+        self._tail_w = 0.0 if is_system else 6.0
+        self._tail_h = 10.0
+        self._tail_top = 11.0
+        # 使魔消息的小头像放在气泡外侧左边（微信式）：_avatar_w 是 widget 左侧
+        # 给「头像 32px + 与气泡间距 8px」预留的区域，主体与尾巴都从它右边开始。
+        # 头像尺寸接近单行气泡高度，顶部与主体齐平：多行消息时对齐第一行文字，
+        # 不随气泡变高而下移。
+        # 头像仍画在同一 widget 内、随气泡一起淡出，不额外占用 row 布局。
         # 开关状态由 ChatPanel 统一持有并传入（单一状态源，不依赖配置落盘时序）；
         # avatar_enabled=None 时兼容独立构造，回退读配置。
         if avatar_enabled is None:
             avatar_enabled = is_enabled(FX_BUBBLE_AVATAR)
         self._show_avatar = (not is_user) and (not is_system) and bool(avatar_enabled)
-        self._avatar = round_avatar_pixmap(20) if self._show_avatar else None
-        self._avatar_w = 28 if self._show_avatar else 0
+        self._avatar = round_avatar_pixmap(32) if self._show_avatar else None
+        self._avatar_w = 40 if self._show_avatar else 0
         # 每条新消息自带一次小闪花（常驻效果，无开关）：系统提示不闪。
         # 用户气泡与使魔气泡底色不同，配色在 _paint_sparkle 里分别取。
         self._sparkle = not is_system
@@ -159,7 +170,8 @@ class BubbleWidget(QWidget):
             side = QColor("#FFE9D2")
             edge = QColor("#FFFFFF")
             scale, side_scale = 1.0, 0.5
-            ox, oy = self.width() - 12, 10
+            # 主体右侧已内缩 _tail_w，闪花跟着主体走，别落到尾巴留白里
+            ox, oy = self.width() - self._tail_w - 12, 10
             sx, sy = -11, -8
         else:
             petal = QColor("#FF8A80")
@@ -167,7 +179,7 @@ class BubbleWidget(QWidget):
             side = QColor("#FFB4AB")
             edge = QColor("#E0507A")       # 深描边：奶油白底上轮廓才立得住
             scale, side_scale = 1.22, 0.58
-            ox, oy = self.width() - 13, 11
+            ox, oy = self.width() - self._tail_w - 13, 11
             sx, sy = -13, -9
         painter.save()
         # 透明度兜底：气泡淡入期间也能看到闪一下
@@ -240,8 +252,8 @@ class BubbleWidget(QWidget):
         if target == self._show_avatar:
             return False
         self._show_avatar = target
-        self._avatar = round_avatar_pixmap(20) if target else None
-        self._avatar_w = 28 if target else 0
+        self._avatar = round_avatar_pixmap(32) if target else None
+        self._avatar_w = 40 if target else 0
         old_h = self.height()
         self._compute_size()
         self.update()
@@ -256,17 +268,26 @@ class BubbleWidget(QWidget):
         self._label.setText("\n".join(self._lines))
         self._label.adjustSize()
 
-        # 气泡尺寸以 QLabel 实际渲染尺寸为基准，确保文字完整显示
-        w = min(self._label.width() + self._pad_h * 2 + self._avatar_w, self._max_w)
-        h = self._label.height() + self._pad_v * 2 + self._tail_extra
+        # widget 宽度 = 头像外侧预留 + 文字 + 内边距 + 左右尾巴留白；
+        # 主体因此对称内缩，文字相对主体的左右留白仍是 _pad_h。
+        w = min(
+            self._label.width() + self._pad_h * 2 + self._avatar_w
+            + int(self._tail_w * 2),
+            self._max_w,
+        )
+        h = self._label.height() + self._pad_v * 2
+        # 头像 32px 从 y=1 画到 y=33，给它留足底部余量，避免单行短消息
+        # 或不同字体行高下把圆环下缘削掉。
+        if self._show_avatar:
+            h = max(h, 36)
         self.setFixedSize(w, h)
 
-        # QLabel 在气泡内水平居中、垂直居中（尾巴区域不占文本空间）
+        # QLabel 在主体内水平、垂直居中
         label_x = (
             self._pad_h + self._avatar_w
             + (w - self._pad_h * 2 - self._avatar_w - self._label.width()) // 2
         )
-        label_y = self._pad_v + (h - self._tail_extra - self._pad_v * 2 - self._label.height()) // 2
+        label_y = self._pad_v + (h - self._pad_v * 2 - self._label.height()) // 2
         self._label.setGeometry(label_x, label_y, self._label.width(), self._label.height())
 
     # ---- 绘制 ----
@@ -277,56 +298,52 @@ class BubbleWidget(QWidget):
         painter.setOpacity(opacity)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # 气泡主体（底部为尾巴留出空间）
-        body = QRectF(1, 1, self.width() - 2, self.height() - self._tail_extra - 1)
+        # 主体从「头像外侧预留区」右边开始，再左右各内缩 _tail_w 给侧边尾巴；
+        # 系统气泡与用户气泡没有头像区。
+        tw = self._tail_w
+        avatar_offset = float(self._avatar_w) if self._show_avatar else 0.0
+        body = QRectF(
+            1 + avatar_offset + tw, 1,
+            self.width() - 2 - avatar_offset - tw * 2,
+            self.height() - 2,
+        )
 
-        # 小尾巴（galgame 风格：AI 气泡左下、用户气泡右下；先画在主体下层）
-        if self._tail_extra:
-            tw = 11.0
-            th = float(self._tail_extra - 1)
-            y0 = body.bottom() - 1.5
+        # 微信式小尾巴：用户消息在右侧、使魔消息在左侧，位置靠近气泡顶部。
+        # 尾巴与主体做布尔并集后一次绘制，填充与描边共用同一条外轮廓，
+        # 不会出现「主体底边描边横穿三角形根部」的拼接感。
+        shape = QPainterPath()
+        shape.addRoundedRect(body, self._radius, self._radius)
+        if tw > 0:
+            ty = body.top() + min(self._tail_top, max(0.0, body.height() - self._tail_h))
+            tip_y = ty + self._tail_h * 0.38
             tail = QPainterPath()
             if self._is_user:
-                tx = float(self.width() - 24)
-                tail.moveTo(tx - tw, y0)
-                tail.lineTo(tx, y0)
-                tail.lineTo(tx - 3, y0 + th)
+                # 底边嵌入主体 1.5px，保证并集后是单一连续轮廓
+                tail.moveTo(body.right() - 1.5, ty)
+                tail.lineTo(body.right() + tw, tip_y)
+                tail.lineTo(body.right() - 1.5, ty + self._tail_h)
             else:
-                tx = 22.0
-                tail.moveTo(tx, y0)
-                tail.lineTo(tx + tw, y0)
-                tail.lineTo(tx + 4, y0 + th)
+                tail.moveTo(body.left() + 1.5, ty)
+                tail.lineTo(body.left() - tw, tip_y)
+                tail.lineTo(body.left() + 1.5, ty + self._tail_h)
             tail.closeSubpath()
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QBrush(self._bg_end))
-            painter.drawPath(tail)
+            shape = shape.united(tail)
 
-        # 圆角渐变主体
         gradient = QLinearGradient(0, 0, 0, body.height())
         gradient.setColorAt(0, self._bg_start)
         gradient.setColorAt(1, self._bg_end)
         painter.setBrush(QBrush(gradient))
         painter.setPen(QPen(QColor(242, 102, 139, 90), 1.2))
-        painter.drawRoundedRect(body, self._radius, self._radius)
+        painter.drawPath(shape)
 
-        # 使魔消息的小头像（画在气泡内部，随 painter 的 opacity 一起淡出）
-        # 右界取「文字墨迹左边缘」而不是 label.x()：QLabel 控件几何之后还有
-        # 字形 leftBearing，直接按控件几何算会把头像算得偏左；
-        # 左界取气泡描边可见处（1px），这样左右留白按肉眼所见严格对称。
-        # 头像位图按 devicePixelRatio 超采样，定位要用逻辑尺寸。
+        # 使魔消息的小头像放在气泡轮廓之外（微信式），仍画在同一 widget 内，
+        # 随 painter 的 opacity 一起淡出。尺寸接近单行气泡高度，顶部与主体
+        # 齐平：多行消息时对齐第一行文字，位置和单行时完全一致，
+        # 不随气泡变高而下移。
+        # 位图按 DPR 超采样，drawPixmap 会按逻辑尺寸（32px）落笔。
         if self._avatar and not self._avatar.isNull():
-            ratio = self._avatar.devicePixelRatio() or 1.0
-            aw = self._avatar.width() / ratio
-            ah = self._avatar.height() / ratio
-            fm = self._label.fontMetrics()
-            first = (self._lines[0][0] if self._lines and self._lines[0] else " ")
-            ink_left = self._label.x() + max(0, fm.leftBearing(first))
-            ax = (1.0 + ink_left - aw) / 2.0
-            # 垂直对齐「第一行文字」而不是整块 label 居中：主流 IM（Slack /
-            # Discord / Telegram）多行消息时头像都是顶部对齐；用整块高度居中
-            # 会让头像落在两行之间发飘，且单行 / 多行位置不一致。
-            line_h = fm.height()
-            ay = self._label.y() + (line_h - ah) / 2.0
+            ax = 1.0
+            ay = body.top()
             painter.drawPixmap(int(round(ax)), int(round(ay)), self._avatar)
 
         # 每条新消息自带一次「小闪花」（常驻装饰、无开关），不占几何、不碰布局
