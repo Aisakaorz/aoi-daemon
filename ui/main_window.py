@@ -195,11 +195,20 @@ class MainWindow(QMainWindow):
 
     def _setup_window(self) -> None:
         """配置窗口属性：无边框、透明、置顶、工具窗口"""
-        self.setWindowFlags(
+        flags = (
             Qt.WindowType.Tool
             | Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
         )
+        # macOS 上 Qt.Tool 窗口对应 QNSPanel，默认带 NSWindow 阴影；阴影形状按
+        # 窗口 alpha 生成，Qt 只在窗口尺寸/可见性变化时让它重算。角色每帧动作
+        # 变化却不触发重算，阴影就冻结在「切回前台」那一刻的姿态（抱胸 / 双手
+        # 下垂），之后一直以半透明轮廓留在桌面上——叠在其他应用窗口上时看不出来，
+        # 只有面对桌面才明显。与 _CuteMenu 一致，用 Qt 原生标志关闭阴影。
+        # Windows 不加此标志，窗口外观保持不变。
+        if sys.platform == "darwin":
+            flags |= Qt.WindowType.NoDropShadowWindowHint
+        self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         # 允许鼠标事件穿透但又能接收交互：关键属性组合
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
