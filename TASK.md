@@ -45,7 +45,7 @@
 - [✔] 统一日志（utils/logger.py，级别/格式/文件输出到 stdout）
 - [✔] FR-LE-005: 状态机（core/state_machine.py，优先级/动作选取/回调）
 - [✔] Monkey-patch MeshContext 导入 bug（l2d/__init__.py）
-- [✔] requirements.txt（PySide6, live2d-py, requests, faster-whisper, sounddevice）
+- [✔] 依赖清单（现按平台拆分为 requirements-windows.txt / requirements-mac.txt）
 
 ---
 

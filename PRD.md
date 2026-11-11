@@ -154,7 +154,8 @@
 AoiDaemon/
 ├── main.py
 ├── splash_child.py         # 启动画面子进程入口（独立事件循环，动画不被主进程阻塞）
-├── requirements.txt
+├── requirements-windows.txt # Windows 依赖（CPython 3.14.5）
+├── requirements-mac.txt     # macOS 13 依赖（CPython 3.13，多数包不锁版本）
 ├── config.json
 ├── README.md
 ├── PRD.md
@@ -476,7 +477,7 @@ class Live2DModelWrapper:
 17. **macOS 权限**：首次运行可能需授予麦克风权限（STT）。
 18. **live2d 绘制后的 GL 状态污染**：live2d-py 绘制模型后会遗留 `GL_CULL_FACE` 开启且 `glFrontFace(GL_CW)`，以及 active 纹理单元停在 1（遮罩采样）。在模型绘制后做自定义 GL 绘制（如超采样降采样 quad）必须：先 `glDisable(GL_CULL_FACE)`、`glActiveTexture(GL_TEXTURE0)`；且核心上下文（Qt6 默认）中固定管线 glBegin 静默无效，需使用着色器 + VAO。
 19. **PyInstaller 打包**：live2d 包经 l2d/__init__.py 动态修改 sys.path 导入，静态分析不可见，需在 spec 中 collect_submodules 显式收集；窗口程序（console=False）没有 fd 2，stderr 重定向必须原子化保护；frozen 模式下 l2d 的 sys.path 手术会破坏 _MEIPASS 模块定位须跳过；venv 的 PYTHON*/VIRTUAL_ENV 变量会干扰 exe 内嵌解释器，自动化测试须净化环境模拟双击。
-20. **macOS 只有 OpenGL 2.1 / GLSL 1.20**：Qt 在 macOS 默认创建的是 2.1 兼容上下文（`GL=2.1 Metal - 83.1 | GLSL=1.20`），任何 `#version 330` + `layout(location=...)` 的着色器都会编译失败；而 Windows 显卡驱动的兼容上下文通常能上到 330+，所以同一份自定义着色器代码会"Windows 正常、mac 白屏"。自定义着色器必须准备 `#version 120` 版本（`attribute`/`varying`/`gl_FragColor`，属性位置用 `glBindAttribLocation` 在链接前绑定，不要用 `layout(location=)`），并注意 GL 3.0 以下没有 VAO。另外 live2d 内部着色器本身就是 `#version 120`，可用于对照判断上下文能力。
+20. **macOS 只有 OpenGL 2.1 / GLSL 1.20**：Qt 在 macOS 默认创建的是 2.1 兼容上下文（`GL=2.1 Metal - 83.1 | GLSL=1.20`），任何 `#version 330` + `layout(location=...)` 的着色器都会编译失败；而 Windows 显卡驱动的兼容上下文通常能上到 330+，所以同一份自定义着色器代码会"Windows 正常、mac 白屏"。自定义着色器必须准备 `#version 120` 版本（`attribute`/`varying`/`gl_FragColor`，属性位置用 `glBindAttribLocation` 在链接前绑定，不要用 `layout(location=)`），并注意 GL 3.0 以下没有 VAO。另外 live2d 内部着色器本身就是 `#version 120`，可用于对照判断上下文能力；但 **live2d-py 0.6.0.1 会在 fragment shader 里裸写 `precision mediump float;`（GLSL ES 语法），Apple GLSL 1.20 编译器报 `'precision' : Reserved word`，program 失效后每帧 `glGetAttribLocation` 抛 1282、角色整帧不渲染；0.7.0 起改用 `#ifdef GL_ES` 包裹修正**。mac 侧按库是否提供 `disable_precision` 决定加载参数，见 `l2d/model_wrapper.py`。
 21. **live2d 绘制后必须解绑着色器程序**：`LAppModel.Draw()` 之后没有 `glUseProgram(0)`，此时用固定管线（`glBegin`/`glVertex2f`）做二次绘制会被残留 program 接管，顶点被静默丢弃，日志出现 `GLD_TEXTURE_INDEX_2D is unloadable ... using zero texture`，表现为整帧空白。自定义 GL 绘制的回退路径务必先 `glUseProgram(0)` 并重置颜色/纹理环境。
 22. **透明窗口不要用 windowOpacity 做淡入（macOS）**：`WA_TranslucentBackground` + `FramelessWindowHint` 的窗口在 macOS 上，Qt 的 `windowOpacity` 属性与底层 `NSWindow.alphaValue` 会失同步——形如 `setWindowOpacity(0.0)` 后启动 `QPropertyAnimation(b"windowOpacity")` 淡入，动画跑完 Qt 侧读数已是 `1.00`（日志会写 `opacity=1.00`），但窗口服务器侧 `alphaValue` 仍停在 `0`，表现为"窗口 `visible=True`、持续绘制、`CGWindowList` 里却 `alpha=0.0` 甚至不在屏列表，肉眼完全看不见"，只在前几帧闪一下。排查手法：`CGWindowListCopyWindowInfo` 读 `kCGWindowAlpha` / `kCGWindowIsOnscreen`（不需要屏幕录制权限）。结论：启动画面这类"出现即需醒目"的窗口直接以 alpha=1 硬切，淡出（1→0 后立刻 close）不受影响；若必须避免半透明残留，兜底重设需先设 0.98 再设 1.0，因为 Qt 判定"值未变化"会跳过下发。
 23. **跨进程置顶窗口的层级**：启动画面在独立子进程里，主进程随后创建的置顶窗口（同为 layer 8）会盖在它上面；且若用户当前处于某个全屏应用的 Space，新进程窗口默认不会显示在那个 Space 里（日志 `visible=True` 但屏幕看不到）。解决：通过 ctypes 调 Objective-C runtime 取 `[NSView window]`，设 `setCollectionBehavior:` 为 `CanJoinAllSpaces | Stationary | FullScreenAuxiliary`（=273）并调 `orderFrontRegardless`，无需 pyobjc 依赖。

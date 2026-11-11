@@ -30,8 +30,11 @@ logger = get_logger(__name__)
 # 在 mac 上每帧编译失败。
 #
 # live2d-py v2 自身的着色器就是 "#version 120"
-# （LAppModel.LoadModelJson 默认前缀），因此 120 版本在本项目的运行环境
-# 下必然可用；330 版本保留给核心上下文环境。
+# （LAppModel.LoadModelJson 默认前缀），330 版本保留给核心上下文环境。
+# 注意：live2d-py <=0.6.0.1 的 v2 fragment shader 会裸写
+# "precision mediump float;"（GLSL ES 语法），Apple GLSL 1.20 编译器
+# 会报保留字错误；0.7.0+ 已用 #ifdef GL_ES 包裹修正。
+# 兼容处理见 l2d/model_wrapper.py 的 load()。
 # ------------------------------------------------------------------
 _QUAD_VS_330 = """#version 330 core
 layout(location = 0) in vec2 a_pos;

@@ -5,6 +5,7 @@ Live2D 模型封装层
 """
 import sys
 import os
+import inspect
 from typing import Optional
 
 from l2d import live2d_v2, MotionPriority
@@ -54,13 +55,30 @@ class Live2DModelWrapper:
         """
         try:
             self._model = live2d_v2.LAppModel()
-            self._model.LoadModelJson(model_path)
+            # macOS 上 Qt 只提供 OpenGL 2.1 / GLSL 1.20 兼容上下文。
+            # live2d-py <=0.6.0.1 会在 fragment shader 里裸写
+            # "precision mediump float;"（GLSL ES 语法），Apple 的编译器
+            # 报保留字错误，shader 失效后角色整帧不渲染；0.7.0+ 已改用
+            # #ifdef GL_ES 包裹并移除了 disable_precision 参数。
+            # 因此按库实际是否提供该开关决定传不传，避免版本差异导致参数不匹配。
+            # Windows 显卡驱动对 precision 宽容，调用保持原样不变。
+            applied = False
+            if sys.platform == "darwin" and "disable_precision" in inspect.signature(
+                self._model.LoadModelJson
+            ).parameters:
+                self._model.LoadModelJson(model_path, disable_precision=True)
+                applied = True
+            else:
+                self._model.LoadModelJson(model_path)
             self._model.Resize(self._width, self._height)
             # 关闭内置自动呼吸，由应用层自行控制以实现更平滑的效果
             self._model.SetAutoBreathEnable(False)
             self._model.SetAutoBlinkEnable(True)
             self._initialized = True
-            logger.info(f"模型加载成功: {model_path}")
+            logger.info(
+                f"模型加载成功: {model_path}"
+                + ("（macOS: 已禁用 GLSL precision 声明）" if applied else "")
+            )
             return True
         except Exception as e:
             logger.error(f"模型加载失败: {e}")

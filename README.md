@@ -1,6 +1,6 @@
 # 葵之使魔 ~ AoiDaemon ~
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![Python](https://img.shields.io/badge/Python-3.13%20%7C%203.14-blue)
 ![PySide6](https://img.shields.io/badge/PySide6-6.11%2B-green)
 ![Live2D](https://img.shields.io/badge/Live2D-Cubism%202.x-darkorange)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-steelblue)
@@ -26,7 +26,12 @@
 
 ## 🚀 快速开始
 
-**环境要求**：Python 3.10+ · Windows 10+ / macOS 12+ · OpenGL
+**环境要求**：OpenGL · 按平台选择对应依赖文件
+
+| 平台 | 推荐 Python | 依赖文件 |
+|------|-------------|----------|
+| Windows 10+ | CPython 3.14.5 | `requirements-windows.txt` |
+| macOS 13 (Ventura) | CPython 3.13.x | `requirements-mac.txt` |
 
 ```bash
 git clone https://github.com/Aisakaorz/aoi-daemon.git
@@ -35,14 +40,17 @@ cd aoi-daemon
 # Windows
 python -m venv .venv
 .venv\Scripts\activate
+pip install -r requirements-windows.txt
 
-# macOS / Linux
+# macOS 13
 python3 -m venv .venv
 source .venv/bin/activate
+pip install -r requirements-mac.txt
 
-pip install -r requirements.txt
 python main.py
 ```
+
+> 项目没有通用的 `requirements.txt`，请按上表选择；macOS 也可用 conda 创建 3.13 环境，命令见 `requirements-mac.txt`。
 
 启动后葵酱会出现在屏幕右下角。语音转文字模型首次使用时按提示在「设置」里下载（约 75MB），也可手动放到 `resources/whisper/tiny/`。
 

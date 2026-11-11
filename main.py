@@ -6,7 +6,7 @@
 v0.1：透明置顶窗口 + Live2D 渲染 + 视线跟踪 + 呼吸动画 + 聊天占位 + 系统托盘
 
 运行前请确保：
-1. 已安装依赖: pip install -r requirements.txt
+1. 已安装依赖: Windows 用 pip install -r requirements-windows.txt；macOS 用 pip install -r requirements-mac.txt
 2. resources/model/ 下已有 haru 模型文件
 
 使用方法:

@@ -1,0 +1,50 @@
+# ============================================================
+# 葵之使魔 ~AoiDaemon~ | macOS 13 依赖（全锁版本）
+# 推荐 Python：CPython 3.13.x（conda 当前可装 3.13.18）
+# 注意：不要用 3.14 —— live2d-py 0.6.0.1 没有 cp314 的 macOS 13 wheel
+# ============================================================
+# 与 Windows 的 requirements-windows.txt（推荐 CPython 3.14.5）分开维护，不要合并。
+# 原因：本机 macOS 13.7.8 (Ventura) 装不了 PySide6 6.12.0（wheel 要求 macOS 14+）
+# 和 live2d-py 0.7.0（wheel 要求 macOS 15+）。
+# 下面每个版本都已核验存在 macOS 13 / arm64 / cp313 预编译 wheel。
+# 本机 macOS 13 长期固定，这两份依赖会一直分开维护。
+#
+# 用法（推荐 miniconda 独立环境，不要动 base 的 Python 3.9）：
+#   conda create -n aoi-daemon python=3.13 -y
+#   conda activate aoi-daemon
+#   python -m pip install -r requirements-mac.txt
+#   python -m pip freeze > requirements-mac.lock.txt   # 完整快照，含间接依赖
+#   python -c "import PySide6, live2d.v2, av; from l2d import LAppModel; print('ok')"
+#
+# 若改用 venv（解释器需为 3.13）：
+#   /Users/aisakaaoi/.workbuddy/binaries/python/versions/3.13.12/bin/python3 -m venv .venv
+#   .venv/bin/pip install -r requirements-mac.txt
+
+# 只用预编译 wheel：macOS 13 上 av 等包的源码构建会去链接 Homebrew
+# FFmpeg 7.1 并失败。锁版本后仍留这道保险，避免任何包退回 sdist。
+--only-binary=:all:
+
+# Qt 图形界面
+PySide6==6.11.3
+
+# Live2D：1.0.0 移除了项目依赖的 live2d.v2 旧 API；0.6.1 起 macOS wheel
+# 要求 15+，只剩需 CMake 编译的 sdist。0.6.0.1 是最后一个同时具备
+# 「macOS 13 预编译 wheel」与「完整 v2 API」的版本。
+live2d-py==0.6.0.1
+
+# faster-whisper 依赖链：av / onnxruntime 新版只有 macOS 14 wheel，
+# 必须钉在最后一批兼容 macOS 13 的版本上。
+faster-whisper==1.2.1
+av==15.1.0
+onnxruntime==1.23.2
+ctranslate2==4.9.0
+tokenizers==0.23.3
+
+# 通用依赖（与 Windows 侧同版本）
+requests==2.34.2
+PyOpenGL==3.1.10
+Pillow==13.0.0
+numpy==2.5.4
+sounddevice==0.5.6
+huggingface-hub==2.4.0
+tqdm==4.70.1

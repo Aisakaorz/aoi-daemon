@@ -18,7 +18,7 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 # 应用版本号（关于卡片与设置窗口显示，发版时同步修改）
-APP_VERSION = "0.1.32"
+APP_VERSION = "0.1.33"
 
 
 def setup_platform_env() -> None:

@@ -1,0 +1,34 @@
+# ============================================================
+# 葵之使魔 ~AoiDaemon~ | Windows 依赖
+# 推荐 Python：CPython 3.14.5（已验证组合）
+# ============================================================
+# 所有依赖锁定为已验证组合；换机器后解释器也请固定同一小版本。
+# 本项目不再提供通用的 requirements.txt：
+#   Windows → 本文件（3.14.5）；macOS 13 → requirements-mac.txt（3.13.x）
+# 拆分原因：PySide6 6.12.0 需 macOS 14+、live2d-py 0.7.0 需 macOS 15+，
+# 在 macOS 13 上无法安装；且 live2d-py 1.0.0 已移除本项目依赖的 v2 旧 API。
+
+# Qt 图形界面
+PySide6==6.12.0
+
+# Live2D Python 绑定（v2 支持 Cubism 2.x 模型）
+# 锁定 0.7.0：live2d-py 1.0.0 移除了 live2d.v2.LAppModel（改名 Model）、
+# 删除 live2d.v2cpp，并重命名了 SetAutoBreathEnable / SetParameterValue / HitTest 等接口，
+# 本项目 l2d/ 仍依赖旧 API。0.7.0 提供 cp314 wheel，兼容 Python 3.14。
+live2d-py==0.7.0
+
+# HTTP 请求（v0.2 接入真实 API 时使用）
+requests==2.34.2
+
+# Live2D 运行时依赖
+PyOpenGL==3.1.10
+Pillow==13.0.0
+numpy==2.5.4
+
+# 语音输入
+faster-whisper==1.2.1
+sounddevice==0.5.6
+
+# 模型下载
+huggingface-hub==2.4.0
+tqdm==4.70.1
