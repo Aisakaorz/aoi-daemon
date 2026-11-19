@@ -183,6 +183,10 @@ class MainWindow(QMainWindow):
         self._return_greeting = comp.note_session_start()
         # 好感值改为可见：启动恢复时用 animate=False，不放「涨数值」入场动画
         self._sync_affection(animate=False)
+        # v0.1.36 话题记忆：恢复存档里的话题词，但不冒旧话题（immediate=False）
+        self._idle_chatter.set_topics(comp.recent_topics())
+        # 动作与说话同步：只在状态机自动轮播时联动，交互动作不触发
+        self._state.auto_motion_callback = self._idle_chatter.on_auto_motion
 
         # 挂机时也要按小时回落：复用 Live2D 已有的 16ms 渲染循环做低频检查，
         # 不新增常驻定时器；首帧即检查一次，等价于「打开应用时先验证一次」。
@@ -892,6 +896,9 @@ class MainWindow(QMainWindow):
         self._idle_chatter.show_emote("think")
         # 发消息也加 30 秒冷却，避免连发消息把好感刷满
         comp.add_affection(1, "chat", cooldown=30.0)
+        # v0.1.36：只把消息里的短话题词写进本地存档，下一次待机自语会接上
+        comp.note_topics(text)
+        self._idle_chatter.set_topics(comp.recent_topics(), immediate=True)
         self._sync_affection()
         self._state.force_transit(CharacterState.THINKING)
         self._chat.show_typing_indicator()

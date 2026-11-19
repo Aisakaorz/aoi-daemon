@@ -75,7 +75,11 @@ class StateMachine:
         self._previous_state: Optional[CharacterState] = None
         self._motion_callback = motion_callback
         self._state_change_callback = state_change_callback
+        # 仅「自动轮播」时触发，交互动作与 return_to_idle 不会调用
+        self._auto_motion_callback: Optional[Callable[[str, int], None]] = None
         self._idle_timer = 0.0   # 用于空闲时随机切换动作
+        # 阈值只在每次触发后重抽；原来每帧重抽会让间隔偏向 10 秒
+        self._idle_threshold = random.uniform(10.0, 15.0)
         self._busy_timer = 0.0   # 动作播放中计时器，>0 时忽略单击
         logger.info("状态机初始化完成")
 
@@ -93,6 +97,15 @@ class StateMachine:
     def motion_callback(self, callback: Optional[Callable[[str, int, int], None]]) -> None:
         """设置动作回调"""
         self._motion_callback = callback
+
+    @property
+    def auto_motion_callback(self) -> Optional[Callable[[str, int], None]]:
+        """获取自动轮播动作回调（供说话气泡联动，签名 (group, no)）"""
+        return self._auto_motion_callback
+
+    @auto_motion_callback.setter
+    def auto_motion_callback(self, callback: Optional[Callable[[str, int], None]]) -> None:
+        self._auto_motion_callback = callback
 
     @property
     def state_change_callback(self) -> Optional[Callable[[CharacterState], None]]:
@@ -113,8 +126,8 @@ class StateMachine:
         motions = self._STATE_MOTIONS.get(state, [("idle", 0)])
         return random.choice(motions)
 
-    def _notify(self, state: CharacterState) -> None:
-        """通知状态变更并触发动作"""
+    def _notify(self, state: CharacterState, auto: bool = False) -> None:
+        """通知状态变更并触发动作；auto=True 表示来自空闲自动轮播"""
         group, no = self._pick_motion(state)
         priority = self._get_priority(state)
         logger.debug(f"状态变更: {self._previous_state} -> {state}, motion=({group}, {no}), priority={priority}")
@@ -128,6 +141,12 @@ class StateMachine:
                 self._motion_callback(group, no, priority)
             except Exception as e:
                 logger.error(f"动作回调执行失败: {e}")
+
+        if auto and self._auto_motion_callback:
+            try:
+                self._auto_motion_callback(group, no)
+            except Exception as e:
+                logger.error(f"自动动作回调执行失败: {e}")
 
         if self._state_change_callback:
             try:
@@ -186,6 +205,7 @@ class StateMachine:
         if self._current_state == CharacterState.IDLE and self._busy_timer <= 0:
             self._idle_timer += delta_time
             # 每 10~15 秒随机切换一次 idle 动作，避免单调且不过于频繁
-            if self._idle_timer >= random.uniform(10.0, 15.0):
+            if self._idle_timer >= self._idle_threshold:
                 self._idle_timer = 0.0
-                self._notify(CharacterState.IDLE)
+                self._idle_threshold = random.uniform(10.0, 15.0)
+                self._notify(CharacterState.IDLE, auto=True)
