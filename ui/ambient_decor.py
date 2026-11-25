@@ -93,6 +93,9 @@ class AmbientDecor(QWidget):
         # 登场衔接：花瓣从 0 淡入到常态，登场环散开时正好接管画面
         self._fade_start: int | None = None
         self._fade_ms = 1800
+        # 离场衔接：花瓣渐隐到 0，避免退出那一瞬间画面突然空掉
+        self._fade_out_start: int | None = None
+        self._fade_out_ms = 1400
 
         self._timer = QTimer(self)
         self._timer.setInterval(self._TICK_MS)
@@ -124,6 +127,7 @@ class AmbientDecor(QWidget):
         self._enabled = enabled
         if enabled:
             self._fade_start = None   # 手动打开立即全显，不重复走登场淡入
+            self._fade_out_start = None
             self.start()
         else:
             self.pause()
@@ -137,19 +141,40 @@ class AmbientDecor(QWidget):
         """
         if not self._enabled:
             return
+        self._fade_out_start = None   # 与离场淡出互斥
         self._fade_ms = max(1, int(ms))
         self._fade_start = self._elapsed.elapsed()
         self.start()
         self.update()
 
+    def fade_out(self, ms: int = 1400) -> None:
+        """离场时让花瓣渐隐到 0，与离场粒子环一起收干净。
+
+        同样复用已有的 33ms 定时器；淡出到 0 后保持全隐直到进程退出，
+        不会自己「淡回来」。关闭花瓣开关时不生效。
+        """
+        if not self._enabled:
+            return
+        self._fade_start = None       # 与登场淡入互斥
+        self._fade_out_ms = max(1, int(ms))
+        self._fade_out_start = self._elapsed.elapsed()
+        self.start()
+        self.update()
+
     def _fade_factor(self) -> float:
-        if self._fade_start is None:
-            return 1.0
-        t = (self._elapsed.elapsed() - self._fade_start) / self._fade_ms
-        if t >= 1.0:
-            self._fade_start = None
-            return 1.0
-        return max(0.0, min(1.0, t))
+        """淡入 × 淡出，两者可单独生效；淡出到底后保持 0"""
+        now = self._elapsed.elapsed()
+        factor = 1.0
+        if self._fade_start is not None:
+            t = (now - self._fade_start) / self._fade_ms
+            if t >= 1.0:
+                self._fade_start = None
+            else:
+                factor *= max(0.0, min(1.0, t))
+        if self._fade_out_start is not None:
+            t = (now - self._fade_out_start) / self._fade_out_ms
+            factor *= 0.0 if t >= 1.0 else max(0.0, 1.0 - t)
+        return max(0.0, min(1.0, factor))
 
     def start(self) -> None:
         """开始 / 恢复氛围动画"""

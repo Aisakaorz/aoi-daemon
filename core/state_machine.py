@@ -81,6 +81,7 @@ class StateMachine:
         # 阈值只在每次触发后重抽；原来每帧重抽会让间隔偏向 10 秒
         self._idle_threshold = random.uniform(10.0, 15.0)
         self._busy_timer = 0.0   # 动作播放中计时器，>0 时忽略单击
+        self._frozen = False     # 离场中：冻结自动轮播，不打断告别语
         logger.info("状态机初始化完成")
 
     @property
@@ -194,11 +195,22 @@ class StateMachine:
             self._current_state = CharacterState.IDLE
             self._notify(CharacterState.IDLE)
 
+    @property
+    def frozen(self) -> bool:
+        """是否已冻结自动轮播（离场中）"""
+        return self._frozen
+
+    def freeze(self) -> None:
+        """离场：停止自动轮播，让告别语和离场环独占画面（不可逆，直到退出）"""
+        self._frozen = True
+
     def update(self, delta_time: float) -> None:
         """
         每帧更新（目前仅用于空闲动作轮播）
         :param delta_time: 距离上一帧的时间（秒）
         """
+        if self._frozen:
+            return
         if self._busy_timer > 0:
             self._busy_timer -= delta_time
 

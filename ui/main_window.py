@@ -12,7 +12,7 @@ from ctypes import wintypes
 from typing import Optional
 
 from PySide6.QtWidgets import QMainWindow, QWidget, QVBoxLayout, QApplication, QSystemTrayIcon, QMenu
-from PySide6.QtCore import Qt, QPoint, QByteArray, QTimer
+from PySide6.QtCore import Qt, QPoint, QByteArray, QTimer, QElapsedTimer
 from PySide6.QtGui import QMouseEvent, QPainter
 
 from utils import config_manager as cfg
@@ -31,6 +31,15 @@ logger = get_logger(__name__)
 
 # 挂机回落检查间隔（秒）：复用 Live2D 已有的渲染帧，不新增常驻定时器
 _DECAY_CHECK_INTERVAL = 60.0
+
+# 离场演出时长（毫秒）：点击退出 → 播特效与告别语 → 才真正退出事件循环
+_FAREWELL_MS = 2600
+
+# 窗口整体淡出：前 42% 保持清晰（先看清花瓣收拢和告别语），后段缓缓淡到 0。
+# 复用 Live2D 已有的 16ms 渲染帧 + 墙钟计算，不新增任何定时器。
+_FAREWELL_FADE_START = 0.42
+_FAREWELL_FADE_CURVE = 1.35        # >1 = ease-in，先慢后快，收得自然
+_FAREWELL_FADE_STEP = 0.015        # 透明度变化小于此值不重复 setWindowOpacity
 
 # 默认窗口尺寸
 _DEFAULT_WIDTH = 400
@@ -143,6 +152,9 @@ class MainWindow(QMainWindow):
         self._model = model_wrapper
         self._state = state_machine
         self._splash = splash_screen
+        self._exiting = False     # 离场中：挡住重复退出与新的交互
+        self._farewell_fade = QElapsedTimer()   # 离场窗口淡出的墙钟
+        self._farewell_opacity = 1.0            # 上次下发的透明度（节流用）
 
         self._setup_window()
         self._setup_central_widget()
@@ -285,7 +297,7 @@ class MainWindow(QMainWindow):
         """设置界面切换某项特效时即时下发；新增特效只需在这里加一个分支"""
         from ui.effect_settings import (
             FX_PETALS, FX_HEART_BURST, FX_LIVE_BADGE, FX_BUBBLE_AVATAR,
-            FX_IDLE_CHATTER, FX_GREETING, FX_CUTE_CURSOR,
+            FX_IDLE_CHATTER, FX_GREETING, FX_FAREWELL, FX_CUTE_CURSOR,
         )
         if key == FX_PETALS:
             self._ambient.set_enabled(enabled)
@@ -300,6 +312,8 @@ class MainWindow(QMainWindow):
             self._idle_chatter.set_enabled(enabled)
         elif key == FX_GREETING:
             self._heart_burst.set_greeting(enabled)
+        elif key == FX_FAREWELL:
+            self._heart_burst.set_farewell(enabled)
         elif key == FX_CUTE_CURSOR:
             self._cursor_trail.set_enabled(enabled)
             from ui.cute_cursor import apply_cute_cursor, restore_cursor
@@ -315,11 +329,24 @@ class MainWindow(QMainWindow):
         只由设置窗口的开关回调调用；启动时的 apply_all_effects() 不调用，
         避免和启动登场特效撞车。
         """
-        from ui.effect_settings import FX_GREETING, FX_IDLE_CHATTER
+        from ui.effect_settings import FX_GREETING, FX_FAREWELL, FX_IDLE_CHATTER
         if key == FX_GREETING:
             self._play_greeting()
+        elif key == FX_FAREWELL:
+            self._play_farewell_preview()
         elif key == FX_IDLE_CHATTER:
             self._idle_chatter.preview()
+
+    def _play_farewell_preview(self) -> None:
+        """设置里重开「离场特效」时放一次粒子环。
+
+        只放视觉、不说告别语也不淡出常驻花瓣——否则预览会真的把画面收空，
+        更不会触发退出。真正退出时由 _begin_farewell() 走完整流程。
+        """
+        if hasattr(self, "_heart_burst"):
+            self._heart_burst.farewell(
+                QPoint(self.width() // 2, int(self.height() * 0.52))
+            )
 
     def _play_greeting(self) -> None:
         """在角色中心放一次登场特效（模型就绪 / 开关重新打开共用）"""
@@ -361,6 +388,8 @@ class MainWindow(QMainWindow):
 
     def _on_tapped(self, pos: QPoint) -> None:
         """点击命中角色：重置待机计时，并冒一句摸头 / 点身体的小表情"""
+        if self._exiting:
+            return
         self._idle_chatter.note_activity()
         hy1 = self._character["head_rect"][3]
         kind = "head" if pos.y() <= self.height() * hy1 else "body"
@@ -837,7 +866,9 @@ class MainWindow(QMainWindow):
         super().mousePressEvent(event)
 
     def contextMenuEvent(self, event) -> None:
-        """右键菜单事件"""
+        """右键菜单事件（离场中不再弹菜单）"""
+        if self._exiting:
+            return
         self._menu.popup(event.globalPos())
 
     # ---- 槽函数 ----
@@ -891,6 +922,8 @@ class MainWindow(QMainWindow):
 
     def _on_user_message(self, text: str) -> None:
         """用户发送消息后的处理（当前为本地占位回复流程）"""
+        if self._exiting:
+            return
         logger.info(f"用户消息: {text}")
         self._idle_chatter.note_activity()
         self._idle_chatter.show_emote("think")
@@ -979,7 +1012,11 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def _on_quit(self) -> None:
-        """退出应用（保存配置、清空临时文件后退出）"""
+        """退出应用：先清理，再放离场演出，最后才结束事件循环"""
+        if self._exiting:
+            return          # 离场中重复点退出：忽略，不打断演出
+        self._exiting = True
+
         from voice.model_manager import get_download_manager
         dm = get_download_manager()
         if dm.is_downloading():
@@ -989,4 +1026,64 @@ class MainWindow(QMainWindow):
         self._file_mgr.clear_all()
         logger.info("用户请求退出")
         self._tray.hide()
+
+        from ui.effect_settings import FX_FAREWELL, is_enabled
+        if is_enabled(FX_FAREWELL):
+            self._begin_farewell()
+        else:
+            QApplication.instance().quit()
+
+    def _begin_farewell(self) -> None:
+        """离场演出：冻结节奏 → 花瓣收拢 + 渐隐 + 告别语 + 窗口淡出 → 延迟退出。
+
+        延迟用 QTimer.singleShot 一次性触发，不新增常驻定时器；期间事件循环
+        照常运行，粒子层 / 花瓣层 / 窗口淡化都复用各自的墙钟与渲染帧。
+        """
+        # 自动轮播与随机说话先冻结，否则动作句会盖掉告别语
+        self._state.freeze()
+        self._idle_chatter.freeze()
+        if hasattr(self, "_heart_burst"):
+            self._heart_burst.farewell(
+                QPoint(self.width() // 2, int(self.height() * 0.52))
+            )
+        if hasattr(self, "_ambient"):
+            self._ambient.fade_out(1400)
+        # 告别语仍归「说话气泡」总开关；显示时长盖满整段演出
+        self._idle_chatter.say_farewell(_FAREWELL_MS / 1000.0)
+        self._start_farewell_fade()
+        QTimer.singleShot(_FAREWELL_MS, self._finish_farewell)
+
+    def _start_farewell_fade(self) -> None:
+        """把窗口整体淡出挂到 Live2D 已有的 16ms 渲染帧上（零新增定时器）。
+
+        只有真正退出才走这里；设置里重开开关的 _play_farewell_preview()
+        只放粒子环，不会把窗口淡掉。
+        """
+        self._farewell_fade.start()
+        self._farewell_opacity = 1.0
+        self.setWindowOpacity(1.0)
+        if hasattr(self, "_canvas"):
+            self._canvas._timer.timeout.connect(self._tick_farewell_fade)
+
+    def _tick_farewell_fade(self) -> None:
+        """墙钟驱动：前 42% 完全清晰，后段按 ease-in 曲线淡到全透明"""
+        if not self._exiting:
+            return
+        t = self._farewell_fade.elapsed() / _FAREWELL_MS
+        if t < _FAREWELL_FADE_START:
+            return
+        k = min(1.0, (t - _FAREWELL_FADE_START) / (1.0 - _FAREWELL_FADE_START))
+        opacity = max(0.0, 1.0 - k ** _FAREWELL_FADE_CURVE)
+        # 16ms 帧不必每帧都下发，变化够明显才更新一次
+        if abs(opacity - self._farewell_opacity) >= _FAREWELL_FADE_STEP or opacity == 0.0:
+            self.setWindowOpacity(opacity)
+            self._farewell_opacity = opacity
+
+    def _finish_farewell(self) -> None:
+        """演出结束：断开淡出回调，再真正结束事件循环"""
+        if hasattr(self, "_canvas"):
+            try:
+                self._canvas._timer.timeout.disconnect(self._tick_farewell_fade)
+            except (RuntimeError, TypeError):
+                pass   # 未连接 / 已断开时 Qt 会抛错，忽略即可
         QApplication.instance().quit()

@@ -17,6 +17,8 @@
   指针本体（热点在中心）+ 小花瓣拖尾，与柔光那种模糊光晕不是同一类东西。
 - 打字指示点属于功能性状态提示，启动画面 / 设置 / 关于卡片的背景花纹
   属于弹窗自身装饰，均不列入开关。
+- 离场特效是退出时的一次性演出（花瓣收拢 + 常驻花瓣渐隐 + 告别语），
+  与登场特效同系列但可单独关掉；告别语仍归「说话气泡」总闸管。
 """
 from utils import config_manager as cfg
 
@@ -26,6 +28,7 @@ FX_LIVE_BADGE = "fx_live_badge"                # LIVE 牌（含在线点呼吸�
 FX_BUBBLE_AVATAR = "fx_bubble_avatar"          # 聊天气泡内小头像
 FX_IDLE_CHATTER = "fx_idle_chatter"            # 说话气泡（待机自语 + 交互短句反馈）
 FX_GREETING = "fx_greeting"                    # 模型就绪时的登场特效
+FX_FAREWELL = "fx_farewell"                    # 退出时的离场特效 + 告别自语
 FX_CUTE_CURSOR = "fx_cute_cursor"              # 应用内萌系鼠标指针 + 小拖尾
 
 # (配置键, 设置界面短标签, 默认值)
@@ -36,6 +39,7 @@ EFFECTS = (
     (FX_BUBBLE_AVATAR, "气泡头像", True),
     (FX_IDLE_CHATTER, "说话气泡", True),
     (FX_GREETING, "登场特效", True),
+    (FX_FAREWELL, "离场特效", True),
     (FX_CUTE_CURSOR, "萌系光标", True),
 )
 

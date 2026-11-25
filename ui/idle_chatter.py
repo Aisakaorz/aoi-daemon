@@ -16,6 +16,8 @@
 - 话题记忆：由 core.companion 下发最近聊到的话题词，偶尔接上一句；
   刚聊完则下一次自动动作时优先说。仍归「说话气泡」总开关，
   不新增设置项、不新增定时器。
+- 离场告别语：退出时由 say_farewell() 说一句，显示时长盖满整段离场演出；
+  freeze() 会冻结自动联动与交互短句，保证告别语不被盖掉。
 
 要点：
 - 两者本质是同一件事「葵酱说句话」，合并为**一个开关**；开关重新打开时
@@ -90,6 +92,12 @@ _MOTION_LINES = {
 }
 _MOTION_LINE_CHANCE = 0.30    # 抽到动作专属句的概率
 
+# 离场告别语：只在退出时说，克制、不煽情，不进任何常驻语句池
+_FAREWELL_LINES = (
+    "那我先去休息啦~", "今天也谢谢你陪我", "下次见，要再来哦",
+    "拜拜~ 记得想我", "晚安，明天见呀",
+)
+
 _SHOW_SECONDS = 4.2      # 待机单句显示时长
 _EMOTE_SECONDS = 2.0     # 交互短句更短促
 _FADE = 0.32             # 淡入 / 淡出时长
@@ -105,6 +113,7 @@ class IdleChatter(QWidget):
 
         self._enabled = is_enabled(FX_IDLE_CHATTER)
         self._paused = False          # 主窗口隐藏时不接受动作联动
+        self._frozen = False          # 离场中：冻结随机说话，让告别语独占气泡
         self._shown = QElapsedTimer()
         self._shown.start()
         self._text = ""
@@ -138,6 +147,16 @@ class IdleChatter(QWidget):
         if not enabled:
             self._hide_current()   # 无论当前是自语还是交互短句，一律收起
         self.update()
+
+    def freeze(self) -> None:
+        """离场：冻结自动联动与交互短句，让告别语不被覆盖（不可逆，直到退出）"""
+        self._frozen = True
+
+    def say_farewell(self, seconds: float = 2.4) -> None:
+        """离场时说一句告别语；仍受「说话气泡」总开关控制"""
+        if not self._enabled:
+            return
+        self._present(random.choice(_FAREWELL_LINES), "idle", seconds)
 
     def note_activity(self) -> None:
         """用户发消息 / 点击角色时调用：收起当前气泡，让位给交互短句"""
@@ -236,7 +255,7 @@ class IdleChatter(QWidget):
         只在开关打开、窗口可见、且当前没有气泡时说一句；交互动作不走这里，
         因此不会和 show_emote 打架。
         """
-        if not self._enabled or self._paused or self._visible:
+        if not self._enabled or self._paused or self._frozen or self._visible:
             return
         self._present(self._line_for_motion(group), "idle", _SHOW_SECONDS)
 
@@ -256,13 +275,13 @@ class IdleChatter(QWidget):
 
     def preview(self) -> None:
         """设置里重新打开「说话气泡」时立即冒一句 greet 短句，不用等下一次动作"""
-        if not self._enabled:
+        if not self._enabled or self._frozen:
             return
         self._present(random.choice(_EMOTES["greet"]), "emote", _EMOTE_SECONDS)
 
     def show_emote(self, kind: str) -> None:
         """交互短句：由主窗口事件触发（head / body / think / reply / greet）"""
-        if not self._enabled or kind not in _EMOTES:
+        if not self._enabled or self._frozen or kind not in _EMOTES:
             return
         self._present(random.choice(_EMOTES[kind]), "emote", _EMOTE_SECONDS)
 
